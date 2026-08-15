@@ -62,7 +62,7 @@ function toClassifier(value: unknown): RayaDcsaClassifier | null {
 }
 
 function toIsoTime(raw: RawEventLike): string {
-  const candidate = raw.eventTime || raw.time || raw.date || '';
+  const candidate = raw.eventDateTime || raw.eventTime || raw.time || raw.date || '';
   const parsed = new Date(String(candidate));
   return Number.isNaN(parsed.getTime())
     ? String(candidate)

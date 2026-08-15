@@ -80,13 +80,13 @@ export function mapStatusTextToDcsa(status: string): RayaDcsaEventType {
     [/\b(empty\s*(released|out)|rece|pick\s*up\s*empty)\b/, 'RECE'],
     [/\b(gate[\s-]?in|gtin|full\s*in)\b/, 'GTIN'],
     [/\b(loaded|load\s*on|on\s*board)\b/, 'LOAD'],
-    [/\b(depart|sailed|vessel\s*left|vdes|depa)\b/, 'DEPA'],
-    [/\b(arriv|vessel\s*arrived|varr|arri)\b/, 'ARRI'],
-    [/\b(discharg|unload|disc\b|disch)\b/, 'DISCH'],
+    [/\b(depart\w*|sailed|vessel\s*left|vdes|depa)\b/, 'DEPA'],
+    [/\b(arriv\w*|vessel\s*arrived|varr|arri)\b/, 'ARRI'],
+    [/\b(discharg\w*|unload\w*|disc\b|disch\b)/, 'DISCH'],
     [/\b(gate[\s-]?out|gtot|picked\s*up|delivery)\b/, 'GTOT'],
     [/\b(restow)\b/, 'RESTOW'],
-    [/\b(available\s*for\s*pick|avpu)\b/, 'AVPU'],
-    [/\b(available\s*for\s*drop|avdo)\b/, 'AVDO'],
+    [/\b(available\s*for\s*pick\w*|avpu)\b/, 'AVPU'],
+    [/\b(available\s*for\s*drop\w*|avdo)\b/, 'AVDO'],
   ];
 
   for (const [re, code] of rules) {
