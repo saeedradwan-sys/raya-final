@@ -1,0 +1,12 @@
+[
+  { "code": "MAEU", "descriptionAr": "ميرسك", "descriptionEn": "Maersk", "category": "ocean-carrier" },
+  { "code": "MSCU", "descriptionAr": "إم إس سي", "descriptionEn": "MSC Mediterranean Shipping", "category": "ocean-carrier" },
+  { "code": "CMDU", "descriptionAr": "سي إم إيه سي جي إم", "descriptionEn": "CMA CGM", "category": "ocean-carrier" },
+  { "code": "HLCU", "descriptionAr": "هاباغ لويد", "descriptionEn": "Hapag-Lloyd", "category": "ocean-carrier" },
+  { "code": "ONEY", "descriptionAr": "أوشن نتوورك إكسبرس", "descriptionEn": "Ocean Network Express (ONE)", "category": "ocean-carrier" },
+  { "code": "EGLV", "descriptionAr": "إيفرغرين", "descriptionEn": "Evergreen Line", "category": "ocean-carrier" },
+  { "code": "COSU", "descriptionAr": "كوسكو", "descriptionEn": "COSCO Shipping", "category": "ocean-carrier" },
+  { "code": "YMLU", "descriptionAr": "يانغ مينغ", "descriptionEn": "Yang Ming", "category": "ocean-carrier" },
+  { "code": "ZIMU", "descriptionAr": "زيم", "descriptionEn": "ZIM Integrated Shipping", "category": "ocean-carrier" },
+  { "code": "HDMU", "descriptionAr": "إتش إم إم", "descriptionEn": "HMM (Hyundai Merchant Marine)", "category": "ocean-carrier" }
+]

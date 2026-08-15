@@ -1,0 +1,9 @@
+[
+  { "code": "CD", "descriptionAr": "رسوم جمركية", "descriptionEn": "Customs duty", "category": "duty" },
+  { "code": "GST", "descriptionAr": "الضريبة العامة على المبيعات", "descriptionEn": "General sales tax", "category": "tax" },
+  { "code": "SST", "descriptionAr": "الضريبة الخاصة", "descriptionEn": "Special sales tax", "category": "tax" },
+  { "code": "ADD", "descriptionAr": "رسوم إضافية", "descriptionEn": "Additional fees", "category": "fee" },
+  { "code": "STP", "descriptionAr": "رسوم طوابع", "descriptionEn": "Stamp fees", "category": "fee" },
+  { "code": "SRV", "descriptionAr": "بدل خدمات", "descriptionEn": "Service charges", "category": "fee" },
+  { "code": "ENV", "descriptionAr": "رسوم بيئية", "descriptionEn": "Environmental fees", "category": "fee" }
+]

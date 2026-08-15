@@ -1,6 +1,6 @@
-# [Project name]
+# RAYA Customs
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Jordan customs brokerage platform: tariff/HS lookup, container tracking, ASYCUDA declaration workflow (simulation), client portal, and staff operations tools. Imported from github.com/saeedradwan-sys/raya-customs into `artifacts/raya-customs`.
 
 ## Run & Operate
 
@@ -22,11 +22,16 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/raya-customs/src` — React frontend (react-router-dom, Tailwind v4, custom dark theme in `src/styles`)
+- `artifacts/raya-customs/server` — self-contained Node http API (`index.mjs`, JWT auth, tariff, tracking, ASYCUDA sim); NOT the shared api-server
+- `artifacts/raya-customs/db/migrations` — raw SQL migrations, applied via `pnpm --filter @workspace/raya-customs run db:migrate`
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The raya-customs artifact keeps its original standalone backend instead of the shared api-server/OpenAPI flow; frontend and API run in ONE workflow (`dev` script starts both).
+- Browser calls `/rapi/*` (baked in via Vite `define` of `VITE_API_BASE`); Vite dev proxy rewrites `/rapi` → `/api` to `127.0.0.1:8787`, because the shared proxy owns `/api` for the workspace api-server.
+- Backend persistence uses the built-in Postgres via `RAYA_DATABASE_URL=$DATABASE_URL` (set in the package scripts); without it the server silently falls back to memory/jsonl stores.
+- `src/lib/tracking/adapters.ts` and `src/data/codification/*.json` were reconstructed — the GitHub snapshot never committed them.
 
 ## Product
 

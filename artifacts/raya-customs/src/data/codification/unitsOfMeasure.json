@@ -1,0 +1,14 @@
+[
+  { "code": "KG", "descriptionAr": "كيلوغرام", "descriptionEn": "Kilogram", "category": "unit" },
+  { "code": "TNE", "descriptionAr": "طن متري", "descriptionEn": "Metric tonne", "category": "unit" },
+  { "code": "LTR", "descriptionAr": "لتر", "descriptionEn": "Litre", "category": "unit" },
+  { "code": "MTR", "descriptionAr": "متر", "descriptionEn": "Metre", "category": "unit" },
+  { "code": "MTK", "descriptionAr": "متر مربع", "descriptionEn": "Square metre", "category": "unit" },
+  { "code": "MTQ", "descriptionAr": "متر مكعب", "descriptionEn": "Cubic metre", "category": "unit" },
+  { "code": "NMB", "descriptionAr": "عدد", "descriptionEn": "Number of items", "category": "unit" },
+  { "code": "PR", "descriptionAr": "زوج", "descriptionEn": "Pair", "category": "unit" },
+  { "code": "DZN", "descriptionAr": "دزينة", "descriptionEn": "Dozen", "category": "unit" },
+  { "code": "CTN", "descriptionAr": "كرتونة", "descriptionEn": "Carton", "category": "packaging" },
+  { "code": "PKG", "descriptionAr": "طرد", "descriptionEn": "Package", "category": "packaging" },
+  { "code": "PLT", "descriptionAr": "منصة نقالة", "descriptionEn": "Pallet", "category": "packaging" }
+]

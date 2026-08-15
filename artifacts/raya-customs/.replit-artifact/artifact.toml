@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "RAYA Customs"
+description = "RAYA Jordan customs brokerage platform: tariff lookup, shipment tracking, OCR-assisted declarations, GST calculations, a client portal, and staff operations tools. Imported from the user's GitHub repository for a full product improvement pass."
+version = "1.0.0"
+id = "artifacts/raya-customs"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18608
+
+[services.development]
+run = "pnpm --filter @workspace/raya-customs run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/raya-customs", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/raya-customs/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18608"
+BASE_PATH = "/"

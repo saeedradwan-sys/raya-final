@@ -1,0 +1,9 @@
+[
+  { "code": "EXM-INV", "descriptionAr": "إعفاء استثماري", "descriptionEn": "Investment exemption", "category": "exemption" },
+  { "code": "EXM-DIP", "descriptionAr": "إعفاء دبلوماسي", "descriptionEn": "Diplomatic exemption", "category": "exemption" },
+  { "code": "EXM-FTA", "descriptionAr": "إعفاء اتفاقية تجارة حرة", "descriptionEn": "Free trade agreement exemption", "category": "exemption" },
+  { "code": "ORG-AR", "descriptionAr": "منشأ عربي", "descriptionEn": "Arab origin", "category": "origin" },
+  { "code": "ORG-EU", "descriptionAr": "منشأ أوروبي", "descriptionEn": "European origin", "category": "origin" },
+  { "code": "TMP-ADM", "descriptionAr": "إدخال مؤقت", "descriptionEn": "Temporary admission", "category": "procedure" },
+  { "code": "RE-EXP", "descriptionAr": "إعادة تصدير", "descriptionEn": "Re-export", "category": "procedure" }
+]
