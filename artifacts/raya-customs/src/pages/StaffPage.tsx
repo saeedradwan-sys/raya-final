@@ -168,18 +168,21 @@ export default function StaffPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 lg:px-8 py-12">
+    <div className="mx-auto max-w-6xl px-4 lg:px-8 py-12" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <div className="max-w-xl mb-10">
-        <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-navy-700 text-accent mb-4">
-          <Shield size={22} />
+        <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-navy-700 text-accent mb-4">
+          <Shield size={20} />
         </div>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent mb-2 prose-ar">
+          {t(locale, 'Internal access', 'وصول داخلي')}
+        </p>
         <h1
           className="text-3xl font-bold text-white mb-3"
           style={{ fontFamily: 'var(--font-heading)' }}
         >
           {t(locale, 'Staff Workspace', 'مساحة الموظفين')}
         </h1>
-        <p className="text-muted text-sm leading-relaxed">
+        <p className="text-muted text-sm leading-relaxed prose-ar">
           {t(
             locale,
             'Internal tools for brokers and operations: classification, case management, disbursement modeling, and archive.',
@@ -251,76 +254,82 @@ export default function StaffPage() {
         </>
       ) : (
         <div className="max-w-sm mb-10">
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <label className="block text-xs font-medium text-dim" htmlFor="staff-email">
-              {t(locale, 'Work email', 'بريد العمل')}
-            </label>
-            <input
-              id="staff-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg bg-elevated border border-subtle px-4 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-accent"
-              placeholder="name@company.com"
-              autoComplete="email"
-              disabled={submitting}
-              required
-            />
-            <label className="block text-xs font-medium text-dim" htmlFor="staff-token">
-              {t(locale, 'Activation code', 'رمز التفعيل')}
-            </label>
-            <input
-              id="staff-token"
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              className="w-full rounded-lg bg-elevated border border-subtle px-4 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-accent"
-              placeholder="••••••••••••••••"
-              autoComplete="one-time-code"
-              disabled={submitting}
-              required
-            />
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-lg bg-navy-700 hover:bg-navy-600 border border-strong disabled:opacity-60 text-white text-sm font-medium py-2.5 transition-colors inline-flex items-center justify-center gap-2"
-            >
-              {submitting && <Loader2 size={16} className="animate-spin" />}
-              {t(locale, 'Unlock workspace', 'فتح المساحة')}
-            </button>
-          </form>
-          {error && (
-            <div
-              role="alert"
-              className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300 leading-relaxed flex gap-2"
-            >
-              <AlertCircle size={14} className="shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
+          <div className="rounded-2xl border border-subtle bg-navy-900/80 p-5 shadow-xl shadow-black/20">
+            <form onSubmit={handleSubmit} className="space-y-4" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="staff-email">
+                  {t(locale, 'Work email', 'بريد العمل')}
+                </label>
+                <input
+                  id="staff-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input-field"
+                  placeholder="name@company.com"
+                  autoComplete="email"
+                  disabled={submitting}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="staff-token">
+                  {t(locale, 'Activation code', 'رمز التفعيل')}
+                </label>
+                <input
+                  id="staff-token"
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="input-field"
+                  placeholder="••••••••••••••••"
+                  autoComplete="one-time-code"
+                  disabled={submitting}
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="btn-primary w-full py-2.5"
+              >
+                {submitting && <Loader2 size={16} className="animate-spin" />}
+                {t(locale, 'Unlock workspace', 'فتح المساحة')}
+              </button>
+            </form>
+            {error && (
+              <div
+                role="alert"
+                className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300 leading-relaxed"
+              >
+                <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                <span className="prose-ar">{error}</span>
+              </div>
+            )}
+          </div>
           {import.meta.env.DEV && (
-            <div className="mt-4 p-3 rounded-lg bg-navy-800/60 border border-subtle">
-              <p className="text-[11px] text-dim mb-2">
-              {t(locale, 'Demo tokens (click to fill)', 'رموز تجريبية (انقر للتعبئة)')}
+            <div className="mt-4 p-4 rounded-xl bg-elevated border border-subtle">
+              <p className="text-[11px] text-dim mb-2.5">
+                {t(locale, 'Demo tokens (click to fill)', 'رموز تجريبية (انقر للتعبئة)')}
               </p>
               <ul className="space-y-1.5">
-              {Object.entries(DEMO_STAFF_TOKENS).map(([tok, meta]) => (
-                <li key={tok}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setToken(tok);
-                      setError('');
-                    }}
-                    className="w-full text-start text-xs rounded-md bg-navy-900/80 border border-subtle px-3 py-2 hover:border-strong transition-colors"
-                  >
-                    <span className="font-mono text-accent">{tok}</span>
-                    <span className="block text-dim mt-0.5">
-                      {t(locale, meta.nameEn, meta.nameAr)} · {meta.role}
-                    </span>
-                  </button>
-                </li>
-              ))}
+                {Object.entries(DEMO_STAFF_TOKENS).map(([tok, meta]) => (
+                  <li key={tok}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setToken(tok);
+                        setError('');
+                      }}
+                      className="w-full text-start text-xs rounded-lg bg-navy-900/80 border border-subtle px-3 py-2.5 hover:border-accent/40 transition-colors"
+                    >
+                      <span className="font-mono text-accent">{tok}</span>
+                      <span className="block text-dim mt-0.5">
+                        {t(locale, meta.nameEn, meta.nameAr)} · {meta.role}
+                      </span>
+                    </button>
+                  </li>
+                ))}
               </ul>
             </div>
           )}

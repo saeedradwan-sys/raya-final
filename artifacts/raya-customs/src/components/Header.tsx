@@ -163,8 +163,15 @@ export default function Header() {
         </div>
 
         {open && (
+          <>
+            {/* Backdrop: click outside to close */}
+            <div
+              className="lg:hidden fixed inset-0 z-30"
+              aria-hidden="true"
+              onClick={() => setOpen(false)}
+            />
           <div
-            className="lg:hidden fixed inset-x-0 top-[calc(4rem+env(safe-area-inset-top))] bottom-0 z-40 bg-navy-950/95 backdrop-blur-sm border-t border-subtle overflow-y-auto overscroll-contain"
+            className="lg:hidden fixed inset-x-0 top-[calc(4rem+env(safe-area-inset-top))] bottom-0 z-40 bg-navy-950/97 backdrop-blur-sm border-t border-subtle overflow-y-auto overscroll-contain"
             role="dialog"
             aria-modal="true"
           >
@@ -215,6 +222,7 @@ export default function Header() {
               </div>
             </nav>
           </div>
+          </>
         )}
       </div>
     </header>

@@ -51,10 +51,11 @@ export default function PortalPage() {
   };
 
   return (
-    <div className="mx-auto max-w-md px-4 py-16" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+    <div className="mx-auto max-w-md px-4 py-14 lg:py-20" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+      {/* Page header */}
       <div className="text-center mb-8">
-        <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-navy-700 text-accent mb-4">
-          <Lock size={22} />
+        <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/15 text-accent ring-1 ring-accent/30 mb-4">
+          <Lock size={24} />
         </div>
         <h1
           className="text-2xl font-bold text-white mb-2"
@@ -62,94 +63,98 @@ export default function PortalPage() {
         >
           {portalCopy.title(locale)}
         </h1>
-        <p className="text-sm text-muted leading-relaxed">{portalCopy.subtitle(locale)}</p>
+        <p className="text-sm text-muted leading-relaxed prose-ar">{portalCopy.subtitle(locale)}</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <div>
-          <label className="block text-xs font-medium text-dim mb-1.5" htmlFor="portal-tax">
-            {portalCopy.taxNumber(locale)}
-          </label>
-          <input
-            id="portal-tax"
-            type="text"
-            inputMode="numeric"
-            value={taxNumber}
-            onChange={(e) => setTaxNumber(e.target.value)}
-            className="w-full rounded-lg bg-elevated border border-subtle px-4 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-accent"
-            placeholder={portalCopy.taxPlaceholder(locale)}
-            autoComplete="username"
+      {/* Login card */}
+      <div className="rounded-2xl border border-subtle bg-navy-900/80 p-6 shadow-xl shadow-black/20">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="portal-tax">
+              {portalCopy.taxNumber(locale)}
+            </label>
+            <input
+              id="portal-tax"
+              type="text"
+              inputMode="numeric"
+              value={taxNumber}
+              onChange={(e) => setTaxNumber(e.target.value)}
+              className="input-field"
+              placeholder={portalCopy.taxPlaceholder(locale)}
+              autoComplete="username"
+              disabled={submitting}
+              aria-required="true"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="portal-code">
+              {portalCopy.accessCode(locale)}
+            </label>
+            <input
+              id="portal-code"
+              type="password"
+              value={accessCode}
+              onChange={(e) => setAccessCode(e.target.value)}
+              className="input-field"
+              placeholder={portalCopy.codePlaceholder(locale)}
+              autoComplete="current-password"
+              disabled={submitting}
+              aria-required="true"
+            />
+          </div>
+          <button
+            type="submit"
             disabled={submitting}
-            aria-required="true"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-dim mb-1.5" htmlFor="portal-code">
-            {portalCopy.accessCode(locale)}
-          </label>
-          <input
-            id="portal-code"
-            type="password"
-            value={accessCode}
-            onChange={(e) => setAccessCode(e.target.value)}
-            className="w-full rounded-lg bg-elevated border border-subtle px-4 py-2.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-accent"
-            placeholder={portalCopy.codePlaceholder(locale)}
-            autoComplete="current-password"
-            disabled={submitting}
-            aria-required="true"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-sm font-medium py-2.5 transition-colors inline-flex items-center justify-center gap-2"
-        >
-          {submitting && <Loader2 size={16} className="animate-spin" />}
-          {portalCopy.signIn(locale)}
-        </button>
-      </form>
+            className="btn-primary w-full py-2.5 mt-1"
+          >
+            {submitting && <Loader2 size={16} className="animate-spin" />}
+            {portalCopy.signIn(locale)}
+          </button>
+        </form>
 
-      {error && (
-        <div
-          role="alert"
-          className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300 leading-relaxed"
-        >
-          {error}
-        </div>
-      )}
+        {error && (
+          <div
+            role="alert"
+            className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300 leading-relaxed"
+          >
+            <Lock size={13} className="shrink-0 mt-0.5 text-red-400" />
+            <span className="prose-ar">{error}</span>
+          </div>
+        )}
+      </div>
 
       {import.meta.env.DEV && (
-        <div className="mt-8 p-4 rounded-lg bg-elevated border border-subtle">
+        <div className="mt-5 p-4 rounded-xl bg-elevated border border-subtle">
           <p className="text-xs font-medium text-slate-400 mb-1">{portalCopy.demoTitle(locale)}</p>
-        <p className="text-[11px] text-dim mb-3">{portalCopy.demoHint(locale)}</p>
-        <ul className="space-y-2">
-          {DEMO_CREDENTIALS.map((c) => (
-            <li key={c.code}>
-              <button
-                type="button"
-                onClick={() => {
-                  setTaxNumber(c.tax);
-                  setAccessCode(c.code);
-                  setError('');
-                }}
-                className="w-full text-start text-xs rounded-md bg-navy-900/80 border border-subtle px-3 py-2 hover:border-strong transition-colors"
-              >
-                <span className="text-dim">{portalCopy.taxNumber(locale)}: </span>
-                <span className="text-slate-300 font-mono">{c.tax}</span>
-                <span className="text-dim"> · </span>
-                <span className="text-dim">{portalCopy.accessCode(locale)}: </span>
-                <span className="text-accent font-mono">{c.code}</span>
-                <span className="block text-dim mt-0.5">{t(locale, c.labelEn, c.labelAr)}</span>
-              </button>
-            </li>
-          ))}
+          <p className="text-[11px] text-dim mb-3">{portalCopy.demoHint(locale)}</p>
+          <ul className="space-y-2">
+            {DEMO_CREDENTIALS.map((c) => (
+              <li key={c.code}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaxNumber(c.tax);
+                    setAccessCode(c.code);
+                    setError('');
+                  }}
+                  className="w-full text-start text-xs rounded-lg bg-navy-900/80 border border-subtle px-3 py-2.5 hover:border-accent/40 transition-colors"
+                >
+                  <span className="text-dim">{portalCopy.taxNumber(locale)}: </span>
+                  <span className="text-slate-300 font-mono">{c.tax}</span>
+                  <span className="text-dim"> · </span>
+                  <span className="text-dim">{portalCopy.accessCode(locale)}: </span>
+                  <span className="text-accent font-mono">{c.code}</span>
+                  <span className="block text-dim mt-0.5">{t(locale, c.labelEn, c.labelAr)}</span>
+                </button>
+              </li>
+            ))}
           </ul>
         </div>
       )}
 
-      <div className="mt-6 flex items-start gap-3 p-4 rounded-lg bg-navy-800/40 border border-subtle">
-        <FileText size={16} className="text-slate-500 shrink-0 mt-0.5" />
-        <p className="text-xs text-dim leading-relaxed">{portalCopy.sessionNote(locale)}</p>
+      <div className="mt-5 flex items-start gap-3 p-4 rounded-xl bg-navy-800/40 border border-subtle">
+        <FileText size={15} className="text-slate-500 shrink-0 mt-0.5" />
+        <p className="text-xs text-dim leading-relaxed prose-ar">{portalCopy.sessionNote(locale)}</p>
       </div>
     </div>
   );

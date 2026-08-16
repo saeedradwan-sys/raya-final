@@ -25,7 +25,7 @@ export default function NotFoundPage() {
       </p>
       <Link
         to="/"
-        className="px-6 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors"
+        className="btn-primary px-6 py-2.5"
       >
         {t(locale, 'Go home', 'العودة للرئيسية')}
       </Link>
