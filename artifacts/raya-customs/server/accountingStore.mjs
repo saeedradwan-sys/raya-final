@@ -14,11 +14,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIR = process.env.RAYA_RECORDS_DIR || path.join(__dirname, 'data');
 const JOURNAL_FILE = path.join(DIR, 'journal-entries.json');
 const RECON_FILE = path.join(DIR, 'accounting-recon-state.json');
+const RESOLUTION_FILE = path.join(DIR, 'recon-resolutions.json');
 
 function ensureFiles() {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
   if (!fs.existsSync(JOURNAL_FILE)) fs.writeFileSync(JOURNAL_FILE, '[]', 'utf8');
   if (!fs.existsSync(RECON_FILE)) fs.writeFileSync(RECON_FILE, '{}', 'utf8');
+  if (!fs.existsSync(RESOLUTION_FILE)) fs.writeFileSync(RESOLUTION_FILE, '{}', 'utf8');
 }
 
 function readJsonFile(file, fallback) {
@@ -205,6 +207,66 @@ export async function setReconState(state, organizationId) {
       next.glAdjust222100,
       next.note,
       next.updatedBy,
+    ],
+  );
+  return next;
+}
+
+/** Per-case reconciliation resolution flags (resolved + note). */
+export async function listReconResolutions(organizationId) {
+  if (!databaseEnabled()) {
+    const all = readJsonFile(RESOLUTION_FILE, {});
+    return all[organizationId || 'local'] || {};
+  }
+  const result = await getDatabase().query(
+    `SELECT disbursement_external_id, resolved, note, resolved_by, resolved_at
+     FROM recon_resolutions WHERE organization_id = $1`,
+    [requireOrganizationId(organizationId)],
+  );
+  const map = {};
+  for (const r of result.rows) {
+    map[r.disbursement_external_id] = {
+      resolved: r.resolved,
+      note: r.note,
+      resolvedBy: r.resolved_by,
+      resolvedAt: r.resolved_at,
+    };
+  }
+  return map;
+}
+
+export async function setReconResolution(caseId, patch, organizationId) {
+  const next = {
+    resolved: Boolean(patch.resolved),
+    note: patch.note ? String(patch.note).slice(0, 2000) : null,
+    resolvedBy: patch.resolvedBy || null,
+    resolvedAt: patch.resolved ? new Date().toISOString() : null,
+  };
+
+  if (!databaseEnabled()) {
+    const all = readJsonFile(RESOLUTION_FILE, {});
+    const org = organizationId || 'local';
+    all[org] = all[org] || {};
+    all[org][caseId] = next;
+    writeJsonFile(RESOLUTION_FILE, all);
+    return next;
+  }
+
+  await getDatabase().query(
+    `INSERT INTO recon_resolutions (organization_id, disbursement_external_id, resolved, note, resolved_by, resolved_at)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (organization_id, disbursement_external_id) DO UPDATE SET
+       resolved = EXCLUDED.resolved,
+       note = EXCLUDED.note,
+       resolved_by = EXCLUDED.resolved_by,
+       resolved_at = EXCLUDED.resolved_at`,
+    [
+      requireOrganizationId(organizationId),
+      String(caseId),
+      next.resolved,
+      next.note,
+      next.resolvedBy,
+      next.resolved ? next.resolvedAt : null,
     ],
   );
   return next;

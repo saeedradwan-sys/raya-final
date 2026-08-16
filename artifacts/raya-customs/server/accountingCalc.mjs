@@ -342,3 +342,56 @@ export function buildRecoveryQueue(cases) {
     return b.openAmount - a.openAmount;
   });
 }
+
+/** Jordan GST default rate on agency clearance fees. */
+export const DEFAULT_GST_RATE = 0.16;
+
+/**
+ * Period GST/tax summary fed by persisted journal entries so the report
+ * always matches posted journal figures. Pass-through amounts are shown as
+ * non-taxable; GST applies to the agency fee revenue only.
+ */
+export function buildGstReport(journalEntries, from, to, rate = DEFAULT_GST_RATE) {
+  const inPeriod = journalEntries.filter((e) => {
+    const day = String(e.createdAt || '').slice(0, 10);
+    return day >= from && day <= to;
+  });
+  // A case can have entries persisted per stage (full / payout / settle).
+  // Count each disbursement once: prefer the full-cycle entry, else the
+  // settlement entry, else the payout entry — never sum stages together.
+  const STAGE_PRIORITY = { full: 0, settle: 1, payout: 2 };
+  const byCase = new Map();
+  for (const e of inPeriod) {
+    const prev = byCase.get(e.disbursementId);
+    if (!prev || (STAGE_PRIORITY[e.stage] ?? 9) < (STAGE_PRIORITY[prev.stage] ?? 9)) {
+      byCase.set(e.disbursementId, e);
+    }
+  }
+  const rows = [...byCase.values()].map((e) => {
+    // Revenue is recognized at settlement, not at payout: a payout-only
+    // entry contributes pass-through exposure but no taxable fee yet.
+    const feeRevenue = e.stage === 'payout' ? 0 : round2(e.revenue);
+    return {
+      disbursementId: e.disbursementId,
+      stage: e.stage,
+      postedAt: String(e.createdAt || '').slice(0, 10),
+      passThrough: round2(e.passThrough),
+      feeRevenue,
+      gstOnFee: round2(feeRevenue * rate),
+    };
+  });
+  const feeRevenue = round2(rows.reduce((s, r) => s + r.feeRevenue, 0));
+  const passThrough = round2(rows.reduce((s, r) => s + r.passThrough, 0));
+  const gstCollectible = round2(rows.reduce((s, r) => s + r.gstOnFee, 0));
+  return {
+    from,
+    to,
+    rate,
+    entryCount: rows.length,
+    feeRevenue,
+    passThrough,
+    gstCollectible,
+    grossTaxable: round2(feeRevenue + gstCollectible),
+    rows: rows.sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1)),
+  };
+}

@@ -37,13 +37,20 @@ import {
   buildRecoveryQueue as buildServerRecoveryQueue,
   clientStatementLines as serverStatementLines,
   portfolioMetrics as serverPortfolioMetrics,
+  passThroughTotal as serverPassThroughTotal,
+  round2 as serverRound2,
+  buildGstReport,
+  DEFAULT_GST_RATE,
 } from './accountingCalc.mjs';
 import {
   saveJournalEntry,
   listJournalEntries,
   getReconState,
   setReconState,
+  listReconResolutions,
+  setReconResolution,
 } from './accountingStore.mjs';
+import { issueInvoice, listInvoices, setInvoiceStatus, INVOICE_STATUSES } from './invoiceStore.mjs';
 import {
   newJti,
   newFamilyId,
@@ -1143,7 +1150,156 @@ const server = http.createServer(async (req, res) => {
         glAdjust122100: state.glAdjust122100,
         glAdjust222100: state.glAdjust222100,
       });
-      return send(res, 200, { reconciliation, state });
+      const resolutions = await listReconResolutions(payload.organizationId);
+      return send(res, 200, { reconciliation, state, resolutions });
+    }
+
+    if (req.method === 'PUT' && path === '/api/accounting/reconciliation/resolve') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      if (!canMutateDisbursements(payload)) {
+        return send(res, 403, { error: 'forbidden', reason: 'insufficient_permissions' });
+      }
+      const body = await readBody(req);
+      const caseId = String(body.caseId || '').trim();
+      if (!caseId) return send(res, 400, { error: 'case_id_required' });
+      const state = await setReconResolution(
+        caseId,
+        { resolved: body.resolved, note: body.note, resolvedBy: payload.sub },
+        payload.organizationId,
+      );
+      await appendServerAudit({
+        actorType: 'staff',
+        actorId: payload.sub,
+        actorRole: payload.role,
+        organizationId: payload.organizationId,
+        action: 'accounting.recon.resolve',
+        entityType: 'recon_resolution',
+        entityId: caseId,
+        detailEn: `${state.resolved ? 'Resolved' : 'Reopened'} reconciliation item ${caseId}`,
+        detailAr: `${state.resolved ? 'تمت تسوية' : 'إعادة فتح'} بند المطابقة ${caseId}`,
+        meta: state,
+      });
+      return send(res, 200, { caseId, state });
+    }
+
+    if (req.method === 'GET' && path === '/api/accounting/gst') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      const from = (url.searchParams.get('from') || '').trim();
+      const to = (url.searchParams.get('to') || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+        return send(res, 400, { error: 'invalid_period' });
+      }
+      const rateParam = url.searchParams.get('rate');
+      const rate = rateParam == null || rateParam === '' ? DEFAULT_GST_RATE : Number(rateParam);
+      if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+        return send(res, 400, { error: 'invalid_rate' });
+      }
+      const entries = await listJournalEntries(payload.organizationId);
+      return send(res, 200, { report: buildGstReport(entries, from, to, rate) });
+    }
+
+    // --- Invoices (issued server-side from persisted disbursements) ---
+    if (req.method === 'GET' && path === '/api/accounting/invoices') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      const caseId = (url.searchParams.get('caseId') || '').trim() || undefined;
+      return send(res, 200, { invoices: await listInvoices(payload.organizationId, caseId) });
+    }
+
+    if (req.method === 'POST' && path === '/api/accounting/invoices') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      if (!canMutateDisbursements(payload)) {
+        return send(res, 403, { error: 'forbidden', reason: 'insufficient_permissions' });
+      }
+      const body = await readBody(req);
+      const caseId = String(body.disbursementId || '').trim();
+      if (!caseId) return send(res, 400, { error: 'disbursement_id_required' });
+      const rate = body.gstRate == null ? DEFAULT_GST_RATE : Number(body.gstRate);
+      if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+        return send(res, 400, { error: 'invalid_rate' });
+      }
+      const cases = await listUserDisbursements(payload.organizationId);
+      const disb = cases.find((c) => c.id === caseId);
+      if (!disb) return send(res, 404, { error: 'not_found' });
+      // Figures are always recomputed server-side from the persisted case.
+      const passThrough = serverPassThroughTotal(disb.duties, disb.portFees, disb.otherGovCharges);
+      const agencyFee = serverRound2(Math.max(0, disb.agencyFee));
+      const gstAmount = serverRound2(agencyFee * rate);
+      const total = serverRound2(passThrough + agencyFee + gstAmount);
+      const { invoice, existed } = await issueInvoice(
+        {
+          disbursementId: caseId,
+          currency: disb.currency || 'JOD',
+          passThrough,
+          agencyFee,
+          gstRate: rate,
+          gstAmount,
+          total,
+          payload: {
+            declarationNo: disb.declarationNo,
+            clientNameEn: disb.clientNameEn,
+            clientNameAr: disb.clientNameAr,
+            mode: disb.mode,
+            lines: serverStatementLines(disb),
+          },
+          createdBy: payload.sub,
+        },
+        payload.organizationId,
+      );
+      if (!existed) {
+        await appendServerAudit({
+          actorType: 'staff',
+          actorId: payload.sub,
+          actorRole: payload.role,
+          organizationId: payload.organizationId,
+          action: 'accounting.invoice.issue',
+          entityType: 'invoice',
+          entityId: invoice.id,
+          detailEn: `Issued invoice ${invoice.invoiceNumber} for ${disb.declarationNo || caseId}`,
+          detailAr: `إصدار فاتورة ${invoice.invoiceNumber} للبيان ${disb.declarationNo || caseId}`,
+          meta: { disbursementId: caseId, total: invoice.total },
+        });
+      }
+      return send(res, 200, { invoice, existed });
+    }
+
+    if (req.method === 'PATCH' && path.startsWith('/api/accounting/invoices/')) {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      if (!canMutateDisbursements(payload)) {
+        return send(res, 403, { error: 'forbidden', reason: 'insufficient_permissions' });
+      }
+      const id = decodeURIComponent(path.slice('/api/accounting/invoices/'.length));
+      if (!id || id.includes('/')) return send(res, 404, { error: 'not_found' });
+      const body = await readBody(req);
+      const status = String(body.status || '');
+      if (!INVOICE_STATUSES.includes(status)) return send(res, 400, { error: 'invalid_status' });
+      let invoice;
+      try {
+        invoice = await setInvoiceStatus(id, status, payload.organizationId, payload.sub);
+      } catch (error) {
+        if (error?.code === 'invalid_transition') {
+          return send(res, 409, { error: 'invalid_transition' });
+        }
+        throw error;
+      }
+      if (!invoice) return send(res, 404, { error: 'not_found' });
+      await appendServerAudit({
+        actorType: 'staff',
+        actorId: payload.sub,
+        actorRole: payload.role,
+        organizationId: payload.organizationId,
+        action: 'accounting.invoice.status',
+        entityType: 'invoice',
+        entityId: invoice.id,
+        detailEn: `Invoice ${invoice.invoiceNumber} marked ${status}`,
+        detailAr: `الفاتورة ${invoice.invoiceNumber} عُلّمت ${status}`,
+        meta: { status },
+      });
+      return send(res, 200, { invoice });
     }
 
     if (req.method === 'PUT' && path === '/api/accounting/reconciliation/adjustments') {

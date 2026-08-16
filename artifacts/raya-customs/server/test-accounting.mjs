@@ -119,6 +119,93 @@ try {
     })
   ).json();
   assert(preview.journal.trueUp === 100 && preview.journal.balanced === true, 'preview computes balanced prepay shortfall journal');
+
+  // invoice issuance is server-computed and idempotent per open lifecycle
+  const issue = () =>
+    fetch(`${BASE}/api/accounting/invoices`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ disbursementId: 'disb-test-1' }),
+    });
+  const [invR1, invR2] = await Promise.all([issue(), issue()]);
+  assert(invR1.ok && invR2.ok, 'concurrent invoice issues both succeed');
+  const [invA, invB] = await Promise.all([invR1.json(), invR2.json()]);
+  assert(invA.invoice.id === invB.invoice.id, 'concurrent issues return the same invoice');
+  const inv1 = invA;
+  const inv2 = await (await issue()).json();
+  assert(inv1.invoice.passThrough === 1300 && inv1.invoice.agencyFee === 150, 'invoice figures recomputed server-side');
+  assert(inv1.invoice.gstAmount === 24 && inv1.invoice.total === 1474, 'invoice GST 16% on fee only');
+  assert(inv2.existed === true && inv2.invoice.id === inv1.invoice.id, 'repeat issue returns existing invoice');
+  const patched = await (
+    await fetch(`${BASE}/api/accounting/invoices/${inv1.invoice.id}`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ status: 'sent' }),
+    })
+  ).json();
+  assert(patched.invoice.status === 'sent', 'invoice status transition persisted');
+  // lifecycle is enforced server-side: sent cannot go back to draft
+  const badTransition = await fetch(`${BASE}/api/accounting/invoices/${inv1.invoice.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ status: 'draft' }),
+  });
+  assert(badTransition.status === 409, 'illegal status transition rejected with 409');
+  const paidRes = await fetch(`${BASE}/api/accounting/invoices/${inv1.invoice.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ status: 'paid' }),
+  });
+  assert(paidRes.ok, 'sent -> paid allowed');
+  const reopenPaid = await fetch(`${BASE}/api/accounting/invoices/${inv1.invoice.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ status: 'sent' }),
+  });
+  assert(reopenPaid.status === 409, 'paid is terminal — cannot reopen');
+  const invList = await (await fetch(`${BASE}/api/accounting/invoices`, { headers: auth })).json();
+  assert(invList.invoices.length === 1 && invList.invoices[0].status === 'paid', 'invoice list reflects status');
+
+  // GST report matches posted journal figures
+  const today = new Date().toISOString().slice(0, 10);
+  const gst = await (
+    await fetch(`${BASE}/api/accounting/gst?from=${today}&to=${today}`, { headers: auth })
+  ).json();
+  assert(gst.report.feeRevenue === 150 && gst.report.passThrough === 1300, 'GST report totals match journal');
+  assert(gst.report.gstCollectible === 24 && gst.report.entryCount === 1, 'GST collectible computed at default rate');
+
+  // posting extra stages for the same case must not double-count GST/fees
+  const postStage = (stage) =>
+    fetch(`${BASE}/api/accounting/journal`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ disbursementId: 'disb-test-1', stage }),
+    });
+  assert((await postStage('payout')).ok && (await postStage('settle')).ok, 'stage posts succeed');
+  const gstMulti = await (
+    await fetch(`${BASE}/api/accounting/gst?from=${today}&to=${today}`, { headers: auth })
+  ).json();
+  assert(
+    gstMulti.report.feeRevenue === 150 && gstMulti.report.gstCollectible === 24 && gstMulti.report.passThrough === 1300,
+    'multi-stage posts count each case once in GST report',
+  );
+  const badPeriod = await fetch(`${BASE}/api/accounting/gst?from=2026-02-01&to=2026-01-01`, { headers: auth });
+  assert(badPeriod.status === 400, 'invalid GST period rejected');
+
+  // reconciliation resolve/reopen persists
+  const resolve = await fetch(`${BASE}/api/accounting/reconciliation/resolve`, {
+    method: 'PUT',
+    headers: auth,
+    body: JSON.stringify({ caseId: 'disb-test-1', resolved: true, note: 'chased client' }),
+  });
+  assert(resolve.ok, 'resolution saved');
+  const recon2 = await (
+    await fetch(`${BASE}/api/accounting/reconciliation?asOf=2026-07-25`, { headers: auth })
+  ).json();
+  assert(
+    recon2.resolutions['disb-test-1']?.resolved === true && recon2.resolutions['disb-test-1'].note === 'chased client',
+    'reconciliation returns persisted resolutions',
+  );
 } finally {
   child.kill('SIGTERM');
   fs.rmSync(DATA_DIR, { recursive: true, force: true });

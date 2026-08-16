@@ -189,3 +189,161 @@ export async function fetchReconciliation(asOf: string): Promise<{
     return null;
   }
 }
+
+// --- Invoices ---
+
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'void';
+
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  disbursementId: string;
+  status: InvoiceStatus;
+  currency: string;
+  passThrough: number;
+  agencyFee: number;
+  gstRate: number;
+  gstAmount: number;
+  total: number;
+  issuedAt: string | null;
+  dueAt: string | null;
+  payload: {
+    declarationNo?: string;
+    clientNameEn?: string;
+    clientNameAr?: string;
+    mode?: string;
+    lines?: StatementLine[];
+  };
+  createdAt: string;
+}
+
+export async function fetchInvoices(caseId?: string): Promise<Invoice[] | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    const query = caseId ? `?caseId=${encodeURIComponent(caseId)}` : '';
+    const res = await apiFetch<{ invoices: Invoice[] }>(`/accounting/invoices${query}`, { token });
+    return res.invoices;
+  } catch {
+    return null;
+  }
+}
+
+/** Issue (or return the existing open) invoice for a saved disbursement case. */
+export async function issueInvoiceForCase(
+  disbursementId: string,
+  gstRate?: number,
+): Promise<{ invoice: Invoice; existed: boolean } | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    return await apiFetch('/accounting/invoices', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ disbursementId, gstRate }),
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function updateInvoiceStatus(
+  id: string,
+  status: InvoiceStatus,
+): Promise<Invoice | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    const res = await apiFetch<{ invoice: Invoice }>(
+      `/accounting/invoices/${encodeURIComponent(id)}`,
+      { method: 'PATCH', token, body: JSON.stringify({ status }) },
+    );
+    return res.invoice;
+  } catch {
+    return null;
+  }
+}
+
+// --- GST report ---
+
+export interface GstReportRow {
+  disbursementId: string;
+  stage: string;
+  postedAt: string;
+  passThrough: number;
+  feeRevenue: number;
+  gstOnFee: number;
+}
+
+export interface GstReport {
+  from: string;
+  to: string;
+  rate: number;
+  entryCount: number;
+  feeRevenue: number;
+  passThrough: number;
+  gstCollectible: number;
+  grossTaxable: number;
+  rows: GstReportRow[];
+}
+
+export async function fetchGstReport(
+  from: string,
+  to: string,
+  rate?: number,
+): Promise<GstReport | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    const rateQ = rate != null ? `&rate=${encodeURIComponent(rate)}` : '';
+    const res = await apiFetch<{ report: GstReport }>(
+      `/accounting/gst?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${rateQ}`,
+      { token },
+    );
+    return res.report;
+  } catch {
+    return null;
+  }
+}
+
+// --- Reconciliation resolutions ---
+
+export interface ReconResolution {
+  resolved: boolean;
+  note: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+}
+
+export async function fetchReconciliationFull(asOf: string): Promise<{
+  reconciliation: ClearingReconciliation;
+  state: ReconState;
+  resolutions: Record<string, ReconResolution>;
+} | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    return await apiFetch(`/accounting/reconciliation?asOf=${encodeURIComponent(asOf)}`, { token });
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveReconItem(
+  caseId: string,
+  resolved: boolean,
+  note?: string,
+): Promise<ReconResolution | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    const res = await apiFetch<{ state: ReconResolution }>('/accounting/reconciliation/resolve', {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ caseId, resolved, note }),
+    });
+    return res.state;
+  } catch {
+    return null;
+  }
+}

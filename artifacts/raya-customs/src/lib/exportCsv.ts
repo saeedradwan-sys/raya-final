@@ -2,8 +2,12 @@ import type { ClearingReconciliation, DisbursementCase } from '@/lib/types';
 import { clientStatementLines, passThroughTotal, round2 } from '@/lib/disbursementCalc';
 
 function esc(s: string): string {
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
+  // Guard against spreadsheet formula injection: prefix cells that start
+  // with a formula trigger so Excel/Sheets treat them as text.
+  let v = s;
+  if (/^[=+\-@\t\r]/.test(v)) v = `'${v}`;
+  if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
 }
 
 export function downloadTextFile(filename: string, content: string, mime = 'text/csv;charset=utf-8') {
@@ -67,4 +71,70 @@ export function clientStatementToCsv(c: DisbursementCase): string {
     header,
     ...body,
   ].join('\n');
+}
+
+/** Invoice export (single invoice with statement lines). */
+export function invoiceToCsv(inv: {
+  invoiceNumber: string;
+  status: string;
+  currency: string;
+  passThrough: number;
+  agencyFee: number;
+  gstRate: number;
+  gstAmount: number;
+  total: number;
+  issuedAt: string | null;
+  dueAt: string | null;
+  payload: { declarationNo?: string; clientNameEn?: string; lines?: { labelEn: string; labelAr: string; amount: number; kind: string }[] };
+}): string {
+  const head = [
+    `invoice_number,${esc(inv.invoiceNumber)}`,
+    `status,${inv.status}`,
+    `declaration,${esc(inv.payload.declarationNo || '')}`,
+    `client,${esc(inv.payload.clientNameEn || '')}`,
+    `issued_at,${inv.issuedAt || ''}`,
+    `due_at,${inv.dueAt || ''}`,
+    `currency,${inv.currency}`,
+    `pass_through,${inv.passThrough}`,
+    `agency_fee,${inv.agencyFee}`,
+    `gst_rate,${inv.gstRate}`,
+    `gst_amount,${inv.gstAmount}`,
+    `total,${inv.total}`,
+    '',
+    'label_en,label_ar,amount,kind',
+  ];
+  const body = (inv.payload.lines || []).map((r) =>
+    [esc(r.labelEn), esc(r.labelAr), r.amount, r.kind].join(','),
+  );
+  return [...head, ...body].join('\n');
+}
+
+/** Period GST/tax report export. */
+export function gstReportToCsv(report: {
+  from: string;
+  to: string;
+  rate: number;
+  entryCount: number;
+  feeRevenue: number;
+  passThrough: number;
+  gstCollectible: number;
+  grossTaxable: number;
+  rows: { disbursementId: string; stage: string; postedAt: string; passThrough: number; feeRevenue: number; gstOnFee: number }[];
+}): string {
+  const lines: string[] = [];
+  lines.push('section,key,value');
+  lines.push(`summary,period_from,${report.from}`);
+  lines.push(`summary,period_to,${report.to}`);
+  lines.push(`summary,gst_rate,${report.rate}`);
+  lines.push(`summary,journal_entries,${report.entryCount}`);
+  lines.push(`summary,fee_revenue_taxable,${report.feeRevenue}`);
+  lines.push(`summary,gst_collectible,${report.gstCollectible}`);
+  lines.push(`summary,pass_through_non_taxable,${report.passThrough}`);
+  lines.push(`summary,gross_taxable_incl_gst,${report.grossTaxable}`);
+  lines.push('');
+  lines.push('file,stage,posted_at,pass_through,fee_revenue,gst_on_fee');
+  for (const r of report.rows) {
+    lines.push([esc(r.disbursementId), r.stage, r.postedAt, r.passThrough, r.feeRevenue, r.gstOnFee].join(','));
+  }
+  return lines.join('\n');
 }
