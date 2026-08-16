@@ -524,6 +524,10 @@ const server = http.createServer(async (req, res) => {
           detailEn: 'Invalid staff token',
           detailAr: 'رمز موظف غير صالح',
           ip: req.socket?.remoteAddress,
+        }).catch((error) => {
+          // Failed logins from unknown actors cannot always be attributed to an
+          // organization; auditing is best-effort here and must not mask the 401.
+          console.warn('[audit] staff login_failed audit skipped:', error.message);
         });
         return send(res, 401, { error: 'invalid_credentials' });
       }
@@ -571,6 +575,10 @@ const server = http.createServer(async (req, res) => {
           detailEn: 'Invalid portal credentials',
           detailAr: 'بيانات بوابة غير صالحة',
           ip: req.socket?.remoteAddress,
+        }).catch((error) => {
+          // Failed logins from unknown actors cannot always be attributed to an
+          // organization; auditing is best-effort here and must not mask the 401.
+          console.warn('[audit] portal login_failed audit skipped:', error.message);
         });
         return send(res, 401, { error: 'invalid_credentials' });
       }
