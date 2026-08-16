@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Calculator,
@@ -34,13 +34,31 @@ import {
 } from '@/lib/disbursementCalc';
 import type { DisbursementCase, DisbursementMode } from '@/lib/types';
 import SectionNav from '@/components/SectionNav';
-import { allDisbursements } from '@/lib/recordStore';
+import { allDisbursements, pullRecordsFromServer } from '@/lib/recordStore';
 import { clearingReconToCsv, clientStatementToCsv, downloadTextFile } from '@/lib/exportCsv';
 import { buildRecoveryQueue } from '@/lib/recoveryQueue';
 import { appendAudit } from '@/lib/auditLog';
 import { useStaffAuth } from '@/hooks/useStaffAuth';
 import { staffHasPermission } from '@/lib/staffAuth';
 import { TERMS } from '@/content/terminology';
+import {
+  fetchAccountingSummary,
+  fetchJournalPreview,
+  fetchJournalEntries,
+  fetchReconciliation,
+  fetchStatement,
+  postJournalEntry,
+  saveReconAdjustments,
+  type AccountingMetrics,
+  type JournalEntry,
+  type ServerJournal,
+  type StatementLine,
+} from '@/lib/accountingApi';
+import type { ClearingReconciliation } from '@/lib/types';
+import type { RecoveryItem } from '@/lib/recoveryQueue';
+
+/** Demo reconciliation date (kept stable so the teaching content matches). */
+const RECON_AS_OF = '2026-07-25';
 
 const ACCOUNT_TYPE_LABEL: Record<string, { en: string; ar: string }> = {
   asset: { en: 'Asset', ar: 'أصل' },
@@ -62,19 +80,89 @@ export default function StaffAccountingPage() {
   const [prepayAmount, setPrepayAmount] = useState(1800);
   const [statementId, setStatementId] = useState(() => allDisbursements()[0]?.id ?? '');
 
-  const cases = useMemo(() => allDisbursements(), []);
-  const metrics = useMemo(() => portfolioMetrics(cases), [cases]);
+  const [cases, setCases] = useState<DisbursementCase[]>(() => allDisbursements());
+  const accountingDenied = !staffHasPermission(session, 'clearing:read');
+
+  // Sync persisted disbursements from the server so figures/statements match
+  // the database on any device, then re-read the merged local store.
+  useEffect(() => {
+    if (accountingDenied) return;
+    let cancelled = false;
+    pullRecordsFromServer()
+      .then(() => {
+        if (!cancelled) setCases(allDisbursements());
+      })
+      .catch(() => {
+        /* offline/dev fallback keeps local records */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountingDenied]);
+
+  // Server-computed accounting (source of truth). Local calc is the fallback
+  // when there is no validated staff session or the API is unreachable.
+  const [serverSummary, setServerSummary] = useState<{
+    metrics: AccountingMetrics;
+    recoveryQueue: RecoveryItem[];
+  } | null>(null);
+  const [serverRecon, setServerRecon] = useState<ClearingReconciliation | null>(null);
+  const [serverStatement, setServerStatement] = useState<StatementLine[] | null>(null);
+  const [serverSim, setServerSim] = useState<ServerJournal | null>(null);
+  const [postedEntries, setPostedEntries] = useState<JournalEntry[] | null>(null);
+  const [postCaseId, setPostCaseId] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [postNotice, setPostNotice] = useState<'ok' | 'error' | null>(null);
+  const [adjust122100, setAdjust122100] = useState('0');
+  const [adjust222100, setAdjust222100] = useState('0');
+  const [adjustNote, setAdjustNote] = useState('');
+  const [savingAdjust, setSavingAdjust] = useState(false);
+  const [adjustNotice, setAdjustNotice] = useState<'ok' | 'error' | null>(null);
+
+  const canPostJournal =
+    staffHasPermission(session, 'journals:post') ||
+    staffHasPermission(session, 'shipments:write') ||
+    session?.role === 'staff' ||
+    session?.role === 'accounting';
+
+  useEffect(() => {
+    if (accountingDenied) return;
+    let cancelled = false;
+    fetchAccountingSummary().then((s) => {
+      if (!cancelled && s) setServerSummary(s);
+    });
+    fetchReconciliation(RECON_AS_OF).then((r) => {
+      if (cancelled || !r) return;
+      setServerRecon(r.reconciliation);
+      setAdjust122100(String(r.state.glAdjust122100));
+      setAdjust222100(String(r.state.glAdjust222100));
+      setAdjustNote(r.state.note ?? '');
+    });
+    fetchJournalEntries().then((entries) => {
+      if (!cancelled && entries) setPostedEntries(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountingDenied]);
+
+  const localMetrics = useMemo(() => portfolioMetrics(cases), [cases]);
+  const metrics = serverSummary?.metrics ?? localMetrics;
   /** as-of = today demo; optional GL timing difference on 122100 for teaching */
-  const recon = useMemo(
+  const localRecon = useMemo(
     () =>
-      buildClearingReconciliation(cases, '2026-07-25', {
+      buildClearingReconciliation(cases, RECON_AS_OF, {
         glAdjust122100: 50, // timing: bank paid, journal lag (demo reconciling item)
       }),
     [cases],
   );
-  const accountingDenied = !staffHasPermission(session, 'clearing:read');
+  const recon = serverRecon ?? localRecon;
+  const recoveryQueue = useMemo(
+    () => serverSummary?.recoveryQueue ?? buildRecoveryQueue(cases),
+    [serverSummary, cases],
+  );
 
-  const sim = useMemo(
+  const localSim = useMemo(
     () =>
       buildJournal({
         mode,
@@ -88,13 +176,52 @@ export default function StaffAccountingPage() {
     [mode, duties, portFees, otherGov, agencyFee, stage, prepayAmount],
   );
 
+  useEffect(() => {
+    if (accountingDenied) return;
+    let cancelled = false;
+    // Drop the previous server preview immediately so stale figures are never
+    // shown against the new inputs; local calc renders until the reply lands.
+    setServerSim(null);
+    const handle = setTimeout(() => {
+      fetchJournalPreview({
+        mode,
+        duties,
+        portFees,
+        otherGov,
+        agencyFee,
+        stage,
+        prepayAmount: mode === 'client_prepay' ? prepayAmount : undefined,
+      }).then((j) => {
+        if (!cancelled) setServerSim(j);
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [accountingDenied, mode, duties, portFees, otherGov, agencyFee, stage, prepayAmount]);
+
+  const sim = serverSim ?? localSim;
+
   const passThrough = passThroughTotal(duties, portFees, otherGov);
   const wrongRevenue = round2(passThrough + agencyFee);
   const correctRevenue = round2(agencyFee);
 
   const statementCase: DisbursementCase | undefined =
     cases.find((d) => d.id === statementId) ?? cases[0];
-  const statementLines = statementCase ? clientStatementLines(statementCase) : [];
+  useEffect(() => {
+    if (accountingDenied || !statementCase?.id) return;
+    let cancelled = false;
+    setServerStatement(null); // avoid showing the previous case's statement
+    fetchStatement(statementCase.id).then((lines) => {
+      if (!cancelled) setServerStatement(lines);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountingDenied, statementCase?.id]);
+  const statementLines =
+    serverStatement ?? (statementCase ? clientStatementLines(statementCase) : []);
 
   if (accountingDenied) {
     return (
@@ -542,6 +669,125 @@ export default function StaffAccountingPage() {
         </p>
       </div>
 
+      {/* Posted journal entries (persisted server-side) */}
+      <div id="sec-posted" className="rounded-xl bg-elevated border border-subtle p-6 mb-12">
+        <h2 className="text-base font-semibold text-white mb-2">
+          {t(locale, 'Posted journal entries', 'القيود المرحَّلة')}
+        </h2>
+        <p className="text-xs text-dim mb-4 prose-ar">
+          {t(
+            locale,
+            'Journals are recomputed by the server from the saved file and stored permanently with an audit trail. Reposting a file/stage replaces its previous snapshot — it never double-books.',
+            'القيود يعيد الخادم حسابها من الملف المحفوظ وتُخزَّن بشكل دائم مع سجل تدقيق. إعادة الترحيل لنفس الملف/المرحلة تستبدل اللقطة السابقة — لا ازدواجية قيود.',
+          )}
+        </p>
+        {postedEntries === null ? (
+          <p className="text-xs text-dim">
+            {t(
+              locale,
+              'Sign in with a validated staff session to post and view persisted journals.',
+              'سجّل الدخول بجلسة موظف موثّقة لترحيل القيود المخزَّنة وعرضها.',
+            )}
+          </p>
+        ) : (
+          <>
+            {canPostJournal && (
+              <div className="flex flex-wrap items-center gap-2 mb-4 print:hidden">
+                <select
+                  className="text-xs rounded-lg bg-navy-900 border border-subtle text-white px-2 py-1.5"
+                  value={postCaseId || cases[0]?.id || ''}
+                  onChange={(e) => setPostCaseId(e.target.value)}
+                >
+                  {cases.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.declarationNo} — {locale === 'ar' ? c.clientNameAr : c.clientNameEn}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={posting || cases.length === 0}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
+                  onClick={async () => {
+                    const id = postCaseId || cases[0]?.id;
+                    if (!id) return;
+                    setPosting(true);
+                    setPostNotice(null);
+                    const entry = await postJournalEntry(id, 'full');
+                    if (entry) {
+                      setPostNotice('ok');
+                      const [entries, summary] = await Promise.all([
+                        fetchJournalEntries(),
+                        fetchAccountingSummary(),
+                      ]);
+                      if (entries) setPostedEntries(entries);
+                      if (summary) setServerSummary(summary);
+                    } else {
+                      setPostNotice('error');
+                    }
+                    setPosting(false);
+                  }}
+                >
+                  {posting
+                    ? t(locale, 'Posting…', 'جارٍ الترحيل…')
+                    : t(locale, 'Post journal for file', 'ترحيل قيد للملف')}
+                </button>
+                {postNotice === 'ok' && (
+                  <span className="text-[11px] text-emerald-400">
+                    {t(locale, 'Journal posted and stored.', 'تم ترحيل القيد وتخزينه.')}
+                  </span>
+                )}
+                {postNotice === 'error' && (
+                  <span className="text-[11px] text-danger">
+                    {t(
+                      locale,
+                      'Could not post — the file must be saved to the server first.',
+                      'تعذّر الترحيل — يجب حفظ الملف على الخادم أولاً.',
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+            {postedEntries.length === 0 ? (
+              <p className="text-xs text-dim">
+                {t(locale, 'No journals posted yet.', 'لا قيود مرحَّلة بعد.')}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-dim border-b border-subtle">
+                      <th className="text-start px-3 py-2">{t(locale, 'File', 'الملف')}</th>
+                      <th className="text-start px-3 py-2">{t(locale, 'Stage', 'المرحلة')}</th>
+                      <th className="text-end px-3 py-2">{t(locale, 'Pass-through', 'الممرَّر')}</th>
+                      <th className="text-end px-3 py-2">{t(locale, 'Fee revenue', 'إيراد الأتعاب')}</th>
+                      <th className="text-start px-3 py-2">{t(locale, 'Posted', 'التاريخ')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {postedEntries.slice(0, 12).map((e) => (
+                      <tr key={e.id} className="border-b border-subtle/50">
+                        <td className="px-3 py-2 text-white font-mono">{e.disbursementId}</td>
+                        <td className="px-3 py-2 text-muted">{e.stage}</td>
+                        <td className="px-3 py-2 text-end font-mono text-white">
+                          {formatJod(e.passThrough, locale)}
+                        </td>
+                        <td className="px-3 py-2 text-end font-mono text-success">
+                          {formatJod(e.revenue, locale)}
+                        </td>
+                        <td className="px-3 py-2 text-dim">
+                          {new Date(e.createdAt).toLocaleDateString(locale === 'ar' ? 'ar-JO' : 'en-GB')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Recovery queue */}
       <div id="sec-recovery" className="rounded-xl bg-elevated border border-subtle p-6 mb-12">
         <h2 className="text-base font-semibold text-white mb-2">
@@ -555,7 +801,7 @@ export default function StaffAccountingPage() {
           )}
         </p>
         <ul className="space-y-2">
-          {buildRecoveryQueue(cases).map((r) => (
+          {recoveryQueue.map((r) => (
             <li
               key={r.id}
               className={`rounded-lg border px-3 py-2 text-xs flex flex-wrap justify-between gap-2 ${
@@ -575,7 +821,7 @@ export default function StaffAccountingPage() {
               </span>
             </li>
           ))}
-          {buildRecoveryQueue(cases).length === 0 && (
+          {recoveryQueue.length === 0 && (
             <li className="text-xs text-dim">{t(locale, 'No open recovery items', 'لا بنود استرداد مفتوحة')}</li>
           )}
         </ul>
@@ -763,6 +1009,82 @@ export default function StaffAccountingPage() {
           </div>
         </div>
 
+
+        {serverRecon && canPostJournal && (
+          <div className="rounded-lg border border-subtle bg-navy-900/60 p-4 mb-4 print:hidden">
+            <p className="text-xs font-semibold text-white mb-2">
+              {t(locale, 'GL adjustments (reconciling items)', 'تسويات الأستاذ العام (بنود المطابقة)')}
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-[11px] text-dim">
+                122100
+                <input
+                  type="number"
+                  step="0.01"
+                  className="block mt-1 w-28 text-xs rounded-lg bg-navy-900 border border-subtle text-white px-2 py-1.5"
+                  value={adjust122100}
+                  onChange={(e) => setAdjust122100(e.target.value)}
+                />
+              </label>
+              <label className="text-[11px] text-dim">
+                222100
+                <input
+                  type="number"
+                  step="0.01"
+                  className="block mt-1 w-28 text-xs rounded-lg bg-navy-900 border border-subtle text-white px-2 py-1.5"
+                  value={adjust222100}
+                  onChange={(e) => setAdjust222100(e.target.value)}
+                />
+              </label>
+              <label className="text-[11px] text-dim flex-1 min-w-[180px]">
+                {t(locale, 'Note', 'ملاحظة')}
+                <input
+                  type="text"
+                  className="block mt-1 w-full text-xs rounded-lg bg-navy-900 border border-subtle text-white px-2 py-1.5"
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                  placeholder={t(locale, 'e.g. bank paid, journal lag', 'مثال: دفع بنكي لم يُقيَّد بعد')}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={savingAdjust}
+                className="text-xs px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
+                onClick={async () => {
+                  setSavingAdjust(true);
+                  setAdjustNotice(null);
+                  const state = await saveReconAdjustments({
+                    glAdjust122100: Number(adjust122100) || 0,
+                    glAdjust222100: Number(adjust222100) || 0,
+                    note: adjustNote || undefined,
+                  });
+                  if (state) {
+                    setAdjustNotice('ok');
+                    const r = await fetchReconciliation(RECON_AS_OF);
+                    if (r) setServerRecon(r.reconciliation);
+                  } else {
+                    setAdjustNotice('error');
+                  }
+                  setSavingAdjust(false);
+                }}
+              >
+                {savingAdjust
+                  ? t(locale, 'Saving…', 'جارٍ الحفظ…')
+                  : t(locale, 'Save adjustments', 'حفظ التسويات')}
+              </button>
+              {adjustNotice === 'ok' && (
+                <span className="text-[11px] text-emerald-400">
+                  {t(locale, 'Saved and audited.', 'تم الحفظ والتدقيق.')}
+                </span>
+              )}
+              {adjustNotice === 'error' && (
+                <span className="text-[11px] text-danger">
+                  {t(locale, 'Save failed.', 'فشل الحفظ.')}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-2 mb-4 print:hidden">
           <button

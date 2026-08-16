@@ -1,0 +1,131 @@
+/**
+ * Accounting endpoint tests (file-fallback mode) + journal idempotency.
+ * Run: node server/test-accounting.mjs
+ * Spawns the API on a scratch port with a scratch records dir.
+ */
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = 8977;
+const BASE = `http://127.0.0.1:${PORT}`;
+const DATA_DIR = fs.mkdtempSync('/tmp/raya-acct-test-');
+
+let failures = 0;
+function assert(cond, label) {
+  if (cond) console.log(`  ok: ${label}`);
+  else {
+    failures += 1;
+    console.error(`  FAIL: ${label}`);
+  }
+}
+
+async function waitForServer() {
+  for (let i = 0; i < 40; i += 1) {
+    try {
+      const res = await fetch(`${BASE}/api/health`);
+      if (res.ok) return;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error('server did not start');
+}
+
+const child = spawn(process.execPath, [path.join(__dirname, 'index.mjs')], {
+  env: { ...process.env, PORT: String(PORT), RAYA_PORT: String(PORT), RAYA_RECORDS_DIR: DATA_DIR, RAYA_DATABASE_URL: '' },
+  stdio: 'ignore',
+});
+
+try {
+  await waitForServer();
+
+  const login = await (
+    await fetch(`${BASE}/api/auth/staff/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'STAFF-DEMO-RAYA' }),
+    })
+  ).json();
+  const token = login.accessToken;
+  assert(Boolean(token), 'staff login issues access token');
+  const auth = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+  // unauthenticated access is refused
+  const anon = await fetch(`${BASE}/api/accounting/summary`);
+  assert(anon.status === 401, 'summary requires auth');
+
+  // seed one disbursement
+  const disb = {
+    id: 'disb-test-1',
+    declarationNo: 'D-9001',
+    clientNameEn: 'Test Client',
+    mode: 'pay_first',
+    status: 'open',
+    duties: 1000,
+    portFees: 200,
+    otherGovCharges: 100,
+    agencyFee: 150,
+    createdAt: '2026-07-01',
+    lastMovementAt: '2026-07-02',
+  };
+  const up = await fetch(`${BASE}/api/records/disbursements`, {
+    method: 'POST',
+    headers: auth,
+    body: JSON.stringify(disb),
+  });
+  assert(up.ok, 'disbursement saved');
+
+  const summary = await (await fetch(`${BASE}/api/accounting/summary`, { headers: auth })).json();
+  assert(summary.metrics.openReceivable === 1300, 'summary open receivable = pass-through 1300');
+
+  // repeat + concurrent journal posts must not double-book
+  const post = () =>
+    fetch(`${BASE}/api/accounting/journal`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ disbursementId: 'disb-test-1', stage: 'full' }),
+    });
+  const [p1, p2] = await Promise.all([post(), post()]);
+  assert(p1.ok && p2.ok, 'concurrent posts both succeed');
+  await post(); // repeated click after success
+  const listed = await (
+    await fetch(`${BASE}/api/accounting/journal?caseId=disb-test-1`, { headers: auth })
+  ).json();
+  assert(listed.entries.length === 1, 'only one journal snapshot retained per file/stage');
+  assert(listed.entries[0].passThrough === 1300 && listed.entries[0].revenue === 150, 'snapshot figures correct');
+
+  // reconciliation adjustments persist and change the recon output
+  const put = await fetch(`${BASE}/api/accounting/reconciliation/adjustments`, {
+    method: 'PUT',
+    headers: auth,
+    body: JSON.stringify({ glAdjust122100: 50, glAdjust222100: 0, note: 'timing' }),
+  });
+  assert(put.ok, 'adjustments saved');
+  const recon = await (
+    await fetch(`${BASE}/api/accounting/reconciliation?asOf=2026-07-25`, { headers: auth })
+  ).json();
+  assert(recon.reconciliation.diff122100 === 50 && recon.state.note === 'timing', 'recon reflects persisted adjustments');
+
+  // journal preview mirrors calc rules
+  const preview = await (
+    await fetch(`${BASE}/api/accounting/journal/preview`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ mode: 'client_prepay', duties: 1500, portFees: 350, otherGov: 50, agencyFee: 150, prepayAmount: 1800, stage: 'full' }),
+    })
+  ).json();
+  assert(preview.journal.trueUp === 100 && preview.journal.balanced === true, 'preview computes balanced prepay shortfall journal');
+} finally {
+  child.kill('SIGTERM');
+  fs.rmSync(DATA_DIR, { recursive: true, force: true });
+}
+
+if (failures > 0) {
+  console.error(`${failures} accounting test(s) failed`);
+  process.exit(1);
+}
+console.log('All accounting endpoint tests passed');

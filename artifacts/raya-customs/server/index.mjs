@@ -22,6 +22,7 @@ import {
   allShipmentsMerged,
   listShipmentsForTax,
   listDisbursements as listUserDisbursements,
+
   upsertShipment,
   upsertDisbursement,
   deleteShipment,
@@ -30,6 +31,19 @@ import {
   toggleDocument,
   getShipmentById,
 } from './recordsStore.mjs';
+import {
+  buildJournal as buildServerJournal,
+  buildClearingReconciliation as buildServerReconciliation,
+  buildRecoveryQueue as buildServerRecoveryQueue,
+  clientStatementLines as serverStatementLines,
+  portfolioMetrics as serverPortfolioMetrics,
+} from './accountingCalc.mjs';
+import {
+  saveJournalEntry,
+  listJournalEntries,
+  getReconState,
+  setReconState,
+} from './accountingStore.mjs';
 import {
   newJti,
   newFamilyId,
@@ -1024,6 +1038,144 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
+    // --- Accounting (server-computed from persisted disbursements) ---
+    if (req.method === 'GET' && path === '/api/accounting/summary') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      const cases = await listUserDisbursements(payload.organizationId);
+      return send(res, 200, {
+        metrics: serverPortfolioMetrics(cases),
+        recoveryQueue: buildServerRecoveryQueue(cases),
+        caseCount: cases.length,
+      });
+    }
+
+    if (req.method === 'POST' && path === '/api/accounting/journal/preview') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      const body = await readBody(req);
+      if (!['pay_first', 'client_prepay'].includes(String(body.mode))) {
+        return send(res, 400, { error: 'invalid_mode' });
+      }
+      if (body.stage != null && !['payout', 'settle', 'full'].includes(String(body.stage))) {
+        return send(res, 400, { error: 'invalid_stage' });
+      }
+      return send(res, 200, { journal: buildServerJournal(body) });
+    }
+
+    if (req.method === 'GET' && path === '/api/accounting/journal') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      const caseId = (url.searchParams.get('caseId') || '').trim() || undefined;
+      const entries = await listJournalEntries(payload.organizationId, caseId);
+      return send(res, 200, { entries });
+    }
+
+    if (req.method === 'POST' && path === '/api/accounting/journal') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      if (!canMutateDisbursements(payload)) {
+        return send(res, 403, { error: 'forbidden', reason: 'insufficient_permissions' });
+      }
+      const body = await readBody(req);
+      const caseId = String(body.disbursementId || '').trim();
+      if (!caseId) return send(res, 400, { error: 'disbursement_id_required' });
+      const cases = await listUserDisbursements(payload.organizationId);
+      const disb = cases.find((c) => c.id === caseId);
+      if (!disb) return send(res, 404, { error: 'not_found' });
+      const stage = ['payout', 'settle', 'full'].includes(String(body.stage)) ? body.stage : 'full';
+      // Server recomputes the journal from the persisted case — client figures are never trusted.
+      const journal = buildServerJournal({
+        mode: disb.mode,
+        duties: disb.duties,
+        portFees: disb.portFees,
+        otherGov: disb.otherGovCharges,
+        agencyFee: disb.agencyFee,
+        prepayAmount: disb.prepayReceived,
+        stage,
+      });
+      const entry = await saveJournalEntry(
+        {
+          disbursementId: caseId,
+          stage,
+          mode: disb.mode,
+          ...journal,
+          postedBy: payload.sub,
+        },
+        payload.organizationId,
+      );
+      await appendServerAudit({
+        actorType: 'staff',
+        actorId: payload.sub,
+        actorRole: payload.role,
+        organizationId: payload.organizationId,
+        action: 'accounting.journal.post',
+        entityType: 'journal_entry',
+        entityId: entry.id,
+        detailEn: `Posted journal for ${disb.declarationNo || caseId} (${stage})`,
+        detailAr: `ترحيل قيد للبيان ${disb.declarationNo || caseId} (${stage})`,
+        meta: { disbursementId: caseId, passThrough: journal.passThrough, revenue: journal.revenue },
+      });
+      return send(res, 200, { entry });
+    }
+
+    if (req.method === 'GET' && path.startsWith('/api/accounting/statement/')) {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      const caseId = decodeURIComponent(path.slice('/api/accounting/statement/'.length));
+      if (!caseId || caseId.includes('/')) return send(res, 404, { error: 'not_found' });
+      const cases = await listUserDisbursements(payload.organizationId);
+      const disb = cases.find((c) => c.id === caseId);
+      if (!disb) return send(res, 404, { error: 'not_found' });
+      return send(res, 200, { caseId, lines: serverStatementLines(disb) });
+    }
+
+    if (req.method === 'GET' && path === '/api/accounting/reconciliation') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      const asOf = (url.searchParams.get('asOf') || '').trim() || new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return send(res, 400, { error: 'invalid_as_of' });
+      const [cases, state] = await Promise.all([
+        listUserDisbursements(payload.organizationId),
+        getReconState(payload.organizationId),
+      ]);
+      const reconciliation = buildServerReconciliation(cases, asOf, {
+        glAdjust122100: state.glAdjust122100,
+        glAdjust222100: state.glAdjust222100,
+      });
+      return send(res, 200, { reconciliation, state });
+    }
+
+    if (req.method === 'PUT' && path === '/api/accounting/reconciliation/adjustments') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
+      if (!payload) return;
+      if (!canMutateDisbursements(payload)) {
+        return send(res, 403, { error: 'forbidden', reason: 'insufficient_permissions' });
+      }
+      const body = await readBody(req);
+      const gl122100 = Number(body.glAdjust122100 ?? 0);
+      const gl222100 = Number(body.glAdjust222100 ?? 0);
+      if (!Number.isFinite(gl122100) || !Number.isFinite(gl222100)) {
+        return send(res, 400, { error: 'invalid_adjustment' });
+      }
+      const state = await setReconState(
+        { glAdjust122100: gl122100, glAdjust222100: gl222100, note: body.note, updatedBy: payload.sub },
+        payload.organizationId,
+      );
+      await appendServerAudit({
+        actorType: 'staff',
+        actorId: payload.sub,
+        actorRole: payload.role,
+        organizationId: payload.organizationId,
+        action: 'accounting.recon.adjust',
+        entityType: 'accounting_recon_state',
+        entityId: payload.organizationId || 'local',
+        detailEn: `Set GL adjustments 122100=${state.glAdjust122100}, 222100=${state.glAdjust222100}`,
+        detailAr: `تعيين تسويات الأستاذ 122100=${state.glAdjust122100}، 222100=${state.glAdjust222100}`,
+        meta: state,
+      });
+      return send(res, 200, { state });
+    }
 
     if (req.method === 'POST' && path === '/api/records/document') {
       const payload = requireAuth(req, res, { realm: 'staff', permissions: ['shipments:write'] });
