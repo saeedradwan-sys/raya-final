@@ -1,3 +1,5 @@
+import { describePayloadShape, isNonEmptyPayload } from './trackingAdapters.mjs';
+
 const ACT_N4_CAP_URL = 'https://cap.act.com.jo/apex/cap.zul';
 const TRACK17_ENDPOINT = 'https://api.17track.net/track/v2.4/getRealTimeTrackInfo';
 const APM_TOKEN_ENDPOINT = 'https://api.apmterminals.com/oauth/client_credential/accesstoken?grant_type=client_credentials';
@@ -40,6 +42,45 @@ const PROVIDERS = [
     keyHeader: 'Authorization',
   },
 ];
+
+/**
+ * Returns true when the payload contains a recognised event-container key
+ * (events, milestones, data) with an array value — even if that array is
+ * empty. This prevents false-positive unrecognised_format warnings for valid
+ * no-event responses such as { events: [] } or { milestones: [] }.
+ */
+function hasKnownEventContainer(payload) {
+  if (Array.isArray(payload)) return true;
+  if (!payload || typeof payload !== 'object') return false;
+  for (const key of ['events', 'milestones', 'data']) {
+    const value = payload[key];
+    if (Array.isArray(value)) return true;
+    if (value && typeof value === 'object' && hasKnownEventContainer(value)) return true;
+  }
+  return false;
+}
+
+/**
+ * Log a structured warning when a provider returns a non-empty payload that
+ * no tracking adapter can parse. Intentionally shallow — we log shape only,
+ * never event-level data, to avoid PII leakage.
+ *
+ * Returns a result object with reason: 'unrecognised_format' so callers can
+ * distinguish this from a genuine empty-events response.
+ */
+function warnAndRejectUnrecognisedPayload(provider, reference, payload) {
+  const payloadShape = describePayloadShape(payload);
+  console.warn(JSON.stringify({
+    level: 'warn',
+    event: 'tracking.unrecognised_payload',
+    provider: provider.id,
+    reference,
+    payloadShape,
+    timestamp: new Date().toISOString(),
+    message: 'Provider returned a non-empty payload that no adapter recognised — carrier format may have changed',
+  }));
+  return { ok: false, reason: 'unrecognised_format', payloadShape };
+}
 
 function safeEndpoint(value) {
   if (!value) return null;
@@ -155,6 +196,12 @@ async function requestApm(provider, reference) {
     if (!response.ok) return { ok: false, status: response.status };
     const payload = await response.json();
     const events = extractEvents(payload);
+    // Warn when the payload is non-empty AND has no recognised event-container
+    // key. Payloads with a recognised key (events, milestones, data) but an
+    // empty array are legitimate no-events responses, not format changes.
+    if (!events.length && isNonEmptyPayload(payload) && !hasKnownEventContainer(payload)) {
+      return warnAndRejectUnrecognisedPayload(provider, reference, payload);
+    }
     return events.length ? { ok: true, events } : { ok: false, reason: 'no_events' };
   } catch (error) {
     const message = String(error?.message || '');
@@ -224,6 +271,45 @@ function track17NoEventDetail(payload) {
   );
 }
 
+/**
+ * Returns true when a 17TRACK response (code === 0) signals a structural
+ * format change, covering three failure modes:
+ *
+ * 1. data itself is absent or non-object — unexpected for a success code.
+ * 2. data.accepted is not an array (absent or renamed/moved), AND no
+ *    rejection array is present (a rejection-only response is legitimate).
+ * 3. data.accepted has an item but track_info.tracking.providers is absent
+ *    or not an array — the standard event-extraction path is broken.
+ *
+ * Preserves documented legitimate responses:
+ * - Rejection-only: data.rejected has items and data.accepted is absent.
+ * - Empty-providers: data.accepted[0].track_info.tracking.providers === [].
+ */
+function is17TrackStructurallyChanged(payload) {
+  if (payload?.code !== 0) return false;
+
+  const data = payload?.data;
+
+  // Case 1: data missing or wrong type after a success code.
+  if (!data || typeof data !== 'object') {
+    return isNonEmptyPayload(payload);
+  }
+
+  // Case 2: data.accepted is not an array (absent, null, or renamed).
+  if (!Array.isArray(data.accepted)) {
+    // Legitimate: a rejection-only response has rejected[] with items.
+    if (Array.isArray(data.rejected) && data.rejected.length > 0) return false;
+    // Otherwise non-array/absent accepted with no rejection is suspicious.
+    return isNonEmptyPayload(data);
+  }
+
+  // Case 3: data.accepted is an array — check the first item's expected structure.
+  const accepted0 = data.accepted[0];
+  if (!accepted0 || typeof accepted0 !== 'object') return false;
+  const providers = accepted0?.track_info?.tracking?.providers;
+  return !Array.isArray(providers);
+}
+
 async function request17Track(provider, reference, carrierId) {
   if (!providerConfigured(provider)) return { ok: false, skipped: true };
   try {
@@ -242,6 +328,13 @@ async function request17Track(provider, reference, carrierId) {
     if (payload?.code !== 0) return { ok: false, reason: 'provider_rejected' };
     const events = map17TrackEvents(payload, reference);
     if (!events.length) {
+      // Detect structural format change: a successful, accepted response where
+      // the standard track_info.tracking.providers path is absent or not an
+      // array indicates the 17TRACK schema may have changed. Distinguish this
+      // from a legitimate empty-providers response (providers === []).
+      if (is17TrackStructurallyChanged(payload)) {
+        return warnAndRejectUnrecognisedPayload(provider, reference, payload);
+      }
       const rejection = payload?.data?.rejected?.[0]?.error;
       if (rejection) {
         return {
@@ -278,7 +371,14 @@ async function requestProvider(provider, reference, carrierId) {
     });
     if (!response.ok) return { ok: false, status: response.status };
     const payload = await response.json();
-    return { ok: true, events: extractEvents(payload) };
+    const events = extractEvents(payload);
+    // Warn when the payload is non-empty AND has no recognised event-container
+    // key. Payloads with a recognised key (events, milestones, data) but an
+    // empty array are legitimate no-events responses, not format changes.
+    if (!events.length && isNonEmptyPayload(payload) && !hasKnownEventContainer(payload)) {
+      return warnAndRejectUnrecognisedPayload(provider, reference, payload);
+    }
+    return events.length ? { ok: true, events } : { ok: false, reason: 'no_events' };
   } catch (error) {
     return { ok: false, reason: error?.name === 'TimeoutError' ? 'timeout' : 'provider_unavailable' };
   }

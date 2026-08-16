@@ -61,6 +61,7 @@ import {
   stats,
 } from './refreshStore.mjs';
 import { getBestTerminalTracking, trackingProviderInfo } from './terminalTracking.mjs';
+import { pickAdapter, describePayloadShape } from './trackingAdapters.mjs';
 import { ask, stream as llamaStream, llamaProviderInfo, LlamaDisabledError } from './llamaClient.mjs';
 import {
   buildHsPrompts,
@@ -524,6 +525,56 @@ const server = http.createServer(async (req, res) => {
       });
       return send(res, 200, result);
     }
+    // --- Tracking webhook / normalise endpoint ---
+    // POST /api/track/normalize  – normalise a raw carrier payload into DCSA events.
+    // POST /api/track/events     – same, accepts the upsert-style envelope used by the
+    //                              frontend's upsertTrackingEvents helper.
+    // Both routes require a staff access token with shipments:read.
+    if (req.method === 'POST' && (path === '/api/track/normalize' || path === '/api/track/events')) {
+      const authPayload = requireAuth(req, res, { realm: 'staff', permissions: ['shipments:read'] });
+      if (!authPayload) return;
+
+      const body = await readBody(req);
+      // Resolve the raw carrier payload from either call shape.
+      const rawPayload = path === '/api/track/normalize'
+        ? body.payload
+        : (body.payload ?? body.events ?? body);
+      const containerNumber = String(body.containerNumber || '').trim().toUpperCase() || null;
+
+      const adapter = pickAdapter(rawPayload);
+
+      if (!adapter) {
+        // Structured warning so operators can diagnose unknown carrier formats
+        // without losing context. The full payload is NOT logged to avoid PII
+        // leakage; we capture only its shape and the first few top-level keys.
+        console.warn(JSON.stringify({
+          level: 'warn',
+          event: 'tracking.unrecognised_payload',
+          containerNumber,
+          payloadShape: describePayloadShape(rawPayload),
+          source: String(body.source || 'unknown'),
+          timestamp: new Date().toISOString(),
+          message: 'No tracking adapter matched this payload — carrier format may be new or changed',
+        }));
+        return send(res, 422, {
+          ok: false,
+          error: 'unrecognised_payload',
+          message: 'No adapter could parse this tracking payload. The carrier format may be new or have changed. A structured warning has been logged for diagnostics.',
+          payloadShape: describePayloadShape(rawPayload),
+        });
+      }
+
+      const events = adapter.normalize(rawPayload);
+      return send(res, 200, {
+        ok: true,
+        source: adapter.source,
+        containerNumber,
+        events,
+        count: events.length,
+        disclaimer: 'Events are normalised but not persisted by this endpoint.',
+      });
+    }
+
     // --- Staff login ---
     if (req.method === 'POST' && path === '/api/auth/staff/login') {
       const body = await readBody(req);
