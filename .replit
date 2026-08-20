@@ -18,3 +18,12 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+RAYA_CLIENT_NAME_AR = "شركة سعيد ابوبكر و شريكة"
+RAYA_CLIENT_NAME_EN = "Saeed abubaker and his partner"
+RAYA_CLIENT_TAX_NUMBER = "17194202"
+RAYA_OWNER_EMAIL = "saeedradwan@gmail.com"
+RAYA_OWNER_NAME = "Saeed abubaker"
