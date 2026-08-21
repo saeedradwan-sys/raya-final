@@ -1,3 +1,4 @@
 - [RAYA Customs import quirks](raya-customs-import.md) — repo snapshot missing files were reconstructed; backend rides in the web workflow; `/rapi` proxy and RAYA_* env contract.
 - [RAYA media deliverables](raya-media-deliverables.md) — animated product media belongs in a dedicated video artifact, not an embedded portal route.
 - [RAYA account access](raya-account-access.md) — staff/client credentials bootstrap idempotently from env; access codes remain case-sensitive end to end.
+- [RAYA GitHub mirroring](raya-github-mirroring.md) — the OAuth connector mirrors code through Octokit Git APIs when shell Git lacks GitHub credentials.
