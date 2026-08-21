@@ -1,0 +1,10 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "cL8ty8pej55zQfpuTD-Rf"
+uri = "file://artifacts/raya-customs-video/public/audio/bg_music.mp3"
+type = "audio"
+title = "RAYA video background music"
+description = "Generated music: Confident corporate electronic instrumental background music scoring a 25-second B2B customs logistics product demo. Tight muted synth pulse, warm bass, restrained digital percussion…"
+logical_id = "2c724546-afe9-43f2-a758-10b23270d2d7"

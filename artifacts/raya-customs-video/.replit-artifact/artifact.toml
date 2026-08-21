@@ -1,0 +1,29 @@
+kind = "video"
+previewPath = "/raya-customs-video/"
+title = "RAYA Customs — Product Overview"
+description = "A short animated product-demo video presenting RAYA Customs' connected clearance workflow, shipment tracking, client portal, and accounting workspace."
+version = "1.0.0"
+id = "artifacts/raya-customs-video"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/raya-customs-video/" ]
+localPort = 24753
+
+[services.development]
+run = "pnpm --filter @workspace/raya-customs-video run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/raya-customs-video", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/raya-customs-video/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24753"
+BASE_PATH = "/raya-customs-video/"
+videoAspectRatio = "16:9"
