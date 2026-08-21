@@ -23,7 +23,11 @@ function normalizeTax(tax: string): string {
 }
 
 function normalizeCode(code: string): string {
-  return code.trim().toUpperCase();
+  return code.trim();
+}
+
+function normalizeDemoCode(code: string): string {
+  return normalizeCode(code).toUpperCase();
 }
 
 /** Legacy local demo token (fallback when API is down). */
@@ -50,7 +54,9 @@ export function isSessionExpired(session: PortalSession): boolean {
 
 function localPortalLogin(taxNumber: string, accessCode: string): PortalLoginResult {
   const match = allShipments().find(
-    (s) => s.taxNumber === taxNumber && normalizeCode(s.accessCode) === accessCode,
+    (s) =>
+      s.taxNumber === taxNumber &&
+      normalizeDemoCode(s.accessCode) === normalizeDemoCode(accessCode),
   );
   if (!match) return { ok: false, error: 'invalid' };
 

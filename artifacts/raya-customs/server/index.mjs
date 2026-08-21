@@ -3,11 +3,14 @@
  * Run: node server/index.mjs
  */
 import http from 'node:http';
-import { scryptSync, timingSafeEqual } from 'node:crypto';
 import { PRIVATE_RUNTIME } from './privateConfig.mjs';
 import { signJwt, verifyJwt } from './jwt.mjs';
 import { STAFF_TOKENS, PORTAL_CREDENTIALS, SHIPMENTS_BY_TAX } from './data.mjs';
 import { databaseEnabled, databaseHealth, getDatabase } from './database.mjs';
+import {
+  ensureConfiguredAccounts,
+  verifyAccessSecret,
+} from './accountProvisioning.mjs';
 import {
   channelInfo,
   submitDraft as asycudaSubmitDraft,
@@ -160,14 +163,6 @@ function rejectLlamaRequest(res, state) {
   );
 }
 
-function verifyActivationCode(stored, candidate) {
-  const parts = String(stored || '').split('$');
-  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
-  const actual = Buffer.from(parts[2], 'hex');
-  const derived = scryptSync(String(candidate || ''), parts[1], actual.length);
-  return actual.length === derived.length && timingSafeEqual(actual, derived);
-}
-
 async function databaseStaffClaims(emailOrId, code, byId = false) {
   if (!databaseEnabled()) return null;
   const selector = byId ? 'u.id::text = $1' : 'u.email = $1';
@@ -178,7 +173,7 @@ async function databaseStaffClaims(emailOrId, code, byId = false) {
     [String(emailOrId).trim().toLowerCase()],
   );
   const row = result.rows[0];
-  if (!row || row.status !== 'active' || (!byId && !verifyActivationCode(row.password_hash, code))) return null;
+  if (!row || row.status !== 'active' || (!byId && !verifyAccessSecret(row.password_hash, code))) return null;
   const permissions = Array.isArray(row.permissions) ? row.permissions : [];
   return {
     sub: String(row.id),
@@ -202,7 +197,7 @@ async function databasePortalClaims(taxOrId, code, byId = false) {
     [String(taxOrId).trim()],
   );
   const row = result.rows[0];
-  if (!row || row.status !== 'active' || (!byId && !verifyActivationCode(row.access_code_hash, code))) return null;
+  if (!row || row.status !== 'active' || (!byId && !verifyAccessSecret(row.access_code_hash, code))) return null;
   const shipments = await listShipmentsForTax(row.tax_number, row.organization_id);
   return {
     sub: String(row.id),
@@ -1717,8 +1712,22 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Raya JWT API on http://${HOST}:${PORT}`);
-  console.log(`Access TTL=${ACCESS_TTL}s Refresh TTL=${REFRESH_TTL}s`);
-  console.log('POST /api/auth/refresh  POST /api/auth/logout');
+async function startServer() {
+  if (databaseEnabled()) {
+    const accounts = await ensureConfiguredAccounts(getDatabase());
+    if (accounts.configured) {
+      console.log('Configured staff and client access ensured.');
+    }
+  }
+
+  server.listen(PORT, HOST, () => {
+    console.log(`Raya JWT API on http://${HOST}:${PORT}`);
+    console.log(`Access TTL=${ACCESS_TTL}s Refresh TTL=${REFRESH_TTL}s`);
+    console.log('POST /api/auth/refresh  POST /api/auth/logout');
+  });
+}
+
+startServer().catch((error) => {
+  console.error('[startup] Account provisioning failed:', error.message);
+  process.exit(1);
 });

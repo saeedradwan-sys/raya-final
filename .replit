@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -27,3 +27,6 @@ RAYA_CLIENT_NAME_EN = "Saeed abubaker and his partner"
 RAYA_CLIENT_TAX_NUMBER = "17194202"
 RAYA_OWNER_EMAIL = "saeedradwan@gmail.com"
 RAYA_OWNER_NAME = "Saeed abubaker"
+
+[nix]
+channel = "stable-25_05"
