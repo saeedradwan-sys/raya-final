@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Banknote, CalendarDays, CheckCircle2, Clock3, Download, FileSpreadsheet, Receipt, WalletCards } from 'lucide-react';
+import { Banknote, CalendarDays, CheckCircle2, Clock3, Download, FileCheck2, FileSpreadsheet, Receipt, WalletCards } from 'lucide-react';
 import { useLocale } from '@/hooks/useLocale';
 import { t } from '@/lib/i18n';
 import { formatJod, clientStatementLines } from '@/lib/disbursementCalc';
 import type { DisbursementCase } from '@/lib/types';
 import { clientStatementToCsv, downloadTextFile, invoiceToCsv } from '@/lib/exportCsv';
 import { appendAudit } from '@/lib/auditLog';
+import { invoiceHasGeneratedReceipt, receiptIndicatorLabel } from '@/lib/invoiceReceiptIndicator';
 import {
   fetchInvoices,
   fetchStatement,
@@ -103,10 +104,12 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
     serverStatement ?? (selectedCase ? clientStatementLines(selectedCase) : []);
   const invoiceRows = invoices ?? [];
   const balanceFor = (invoice: Invoice) => Number(invoice.balanceDue ?? invoice.total);
+  const hasReceipt = invoiceHasGeneratedReceipt;
   const invoiceKpis = {
     open: invoiceRows.filter((invoice) => !['paid', 'void'].includes(invoice.status)).reduce((sum, invoice) => sum + balanceFor(invoice), 0),
     overdue: invoiceRows.filter((invoice) => invoice.status === 'overdue').reduce((sum, invoice) => sum + balanceFor(invoice), 0),
     collected: invoiceRows.filter((invoice) => invoice.status === 'paid').reduce((sum, invoice) => sum + invoice.total, 0),
+    receiptReadyCount: invoiceRows.filter(hasReceipt).length,
   };
 
   const openPaymentForm = (invoice: Invoice) => {
@@ -313,6 +316,7 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                   <th className="text-end px-3 py-2">{t(locale, 'Total', 'الإجمالي')}</th>
                   <th className="text-start px-3 py-2">{t(locale, 'Due', 'الاستحقاق')}</th>
                   <th className="text-start px-3 py-2">{t(locale, 'Status', 'الحالة')}</th>
+                  <th className="text-start px-3 py-2">{t(locale, 'Receipt', 'الإيصال')}</th>
                   <th className="text-start px-3 py-2 print:hidden">{t(locale, 'Actions', 'إجراءات')}</th>
                 </tr>
               </thead>
@@ -339,6 +343,25 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${STATUS_STYLE[inv.status]}`}>
                         {t(locale, STATUS_LABEL[inv.status].en, STATUS_LABEL[inv.status].ar)}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {hasReceipt(inv) ? (
+                        <span
+                          title={receiptIndicatorLabel(inv, locale === 'ar' ? 'ar' : 'en').detail}
+                          className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                        >
+                          <FileCheck2 size={11} className="text-emerald-400" />
+                          {receiptIndicatorLabel(inv, locale === 'ar' ? 'ar' : 'en').label}
+                          <span className="text-[9px] text-emerald-200/80">({inv.payments.length})</span>
+                        </span>
+                      ) : (
+                        <span
+                          title={receiptIndicatorLabel(inv, locale === 'ar' ? 'ar' : 'en').detail}
+                          className="inline-flex items-center gap-1 text-[10px] font-normal px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-400 border border-subtle/60"
+                        >
+                          {receiptIndicatorLabel(inv, locale === 'ar' ? 'ar' : 'en').label}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 print:hidden">
                       <div className="flex flex-wrap gap-1.5">
@@ -398,7 +421,7 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                   </tr>
                   {paymentInvoiceId === inv.id && (
                     <tr className="border-b border-accent/20 bg-accent/5">
-                      <td colSpan={6} className="px-3 py-3">
+                      <td colSpan={7} className="px-3 py-3">
                         <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_1fr_auto] md:items-end">
                           <label className="text-[10px] text-dim">{t(locale, 'Payment amount (JOD)', 'مبلغ الدفع (دينار)')}<input autoFocus inputMode="decimal" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder={balanceFor(inv).toFixed(2)} className="mt-1 w-full rounded border border-subtle bg-navy-950 px-2 py-1.5 text-xs text-white" /></label>
                           <label className="text-[10px] text-dim"><span className="inline-flex items-center gap-1"><CalendarDays size={11} />{t(locale, 'Received date', 'تاريخ الاستلام')}</span><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="mt-1 w-full rounded border border-subtle bg-navy-950 px-2 py-1.5 text-xs text-white" /></label>
@@ -411,7 +434,7 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                     </tr>
                   )}
                   {historyInvoiceId === inv.id && inv.payments?.length > 0 && (
-                    <tr className="border-b border-subtle/50 bg-navy-950/30"><td colSpan={6} className="px-3 py-3"><div className="space-y-1.5">{inv.payments.map((payment) => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-subtle px-3 py-2 text-[10px]"><span className="font-mono text-slate-300">{payment.receivedAt} · {payment.reference || t(locale, 'No reference', 'بلا مرجع')}</span><span className="font-mono text-emerald-300">{formatJod(payment.amount, locale)} {payment.currency}</span><span className="text-dim">{payment.note || ''}</span><button type="button" disabled={receiptBusyId === `${inv.id}:${payment.id}`} className="inline-flex items-center gap-1 rounded border border-subtle px-2 py-1 text-muted hover:text-white disabled:opacity-50" onClick={() => void downloadReceipt(inv, payment.id)}><Download size={11} />{receiptBusyId === `${inv.id}:${payment.id}` ? '…' : t(locale, 'Receipt PDF', 'إيصال PDF')}</button></div>)}</div></td></tr>
+                    <tr className="border-b border-subtle/50 bg-navy-950/30"><td colSpan={7} className="px-3 py-3"><div className="space-y-1.5">{inv.payments.map((payment) => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-subtle px-3 py-2 text-[10px]"><span className="font-mono text-slate-300">{payment.receivedAt} · {payment.reference || t(locale, 'No reference', 'بلا مرجع')}</span><span className="font-mono text-emerald-300">{formatJod(payment.amount, locale)} {payment.currency}</span><span className="text-dim">{payment.note || ''}</span><button type="button" disabled={receiptBusyId === `${inv.id}:${payment.id}`} className="inline-flex items-center gap-1 rounded border border-subtle px-2 py-1 text-muted hover:text-white disabled:opacity-50" onClick={() => void downloadReceipt(inv, payment.id)}><Download size={11} />{receiptBusyId === `${inv.id}:${payment.id}` ? '…' : t(locale, 'Receipt PDF', 'إيصال PDF')}</button></div>)}</div></td></tr>
                   )}
                   </Fragment>
                 ))}
