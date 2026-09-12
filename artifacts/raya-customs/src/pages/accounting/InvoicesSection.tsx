@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock3, FileSpreadsheet, Receipt, WalletCards } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
+import { Banknote, CalendarDays, CheckCircle2, Clock3, FileSpreadsheet, Receipt, WalletCards } from 'lucide-react';
 import { useLocale } from '@/hooks/useLocale';
 import { t } from '@/lib/i18n';
 import { formatJod, clientStatementLines } from '@/lib/disbursementCalc';
@@ -10,6 +10,7 @@ import {
   fetchInvoices,
   fetchStatement,
   issueInvoiceForCase,
+  recordInvoicePayment,
   updateInvoiceStatus,
   type Invoice,
   type InvoiceStatus,
@@ -58,6 +59,15 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
   const [serverStatement, setServerStatement] = useState<StatementLine[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<'issued' | 'existing' | 'error' | null>(null);
+  const [paymentInvoiceId, setPaymentInvoiceId] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
+  const [paymentKey, setPaymentKey] = useState('');
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentFeedback, setPaymentFeedback] = useState<{ invoiceId: string; tone: 'ok' | 'error'; text: string } | null>(null);
+  const [historyInvoiceId, setHistoryInvoiceId] = useState<string | null>(null);
 
   const selectedCase = cases.find((c) => c.id === caseId) ?? cases[0];
 
@@ -90,10 +100,48 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
   const statementLines =
     serverStatement ?? (selectedCase ? clientStatementLines(selectedCase) : []);
   const invoiceRows = invoices ?? [];
+  const balanceFor = (invoice: Invoice) => Number(invoice.balanceDue ?? invoice.total);
   const invoiceKpis = {
-    open: invoiceRows.filter((invoice) => !['paid', 'void'].includes(invoice.status)).reduce((sum, invoice) => sum + invoice.total, 0),
-    overdue: invoiceRows.filter((invoice) => invoice.status === 'overdue').reduce((sum, invoice) => sum + invoice.total, 0),
+    open: invoiceRows.filter((invoice) => !['paid', 'void'].includes(invoice.status)).reduce((sum, invoice) => sum + balanceFor(invoice), 0),
+    overdue: invoiceRows.filter((invoice) => invoice.status === 'overdue').reduce((sum, invoice) => sum + balanceFor(invoice), 0),
     collected: invoiceRows.filter((invoice) => invoice.status === 'paid').reduce((sum, invoice) => sum + invoice.total, 0),
+  };
+
+  const openPaymentForm = (invoice: Invoice) => {
+    setPaymentInvoiceId(invoice.id);
+    setPaymentAmount('');
+    setPaymentDate(new Date().toISOString().slice(0, 10));
+    setPaymentReference('');
+    setPaymentNote('');
+    setPaymentKey(typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `payment-${Date.now()}`);
+    setPaymentFeedback(null);
+  };
+
+  const submitPayment = async (invoice: Invoice) => {
+    const amount = Number(paymentAmount);
+    const balance = balanceFor(invoice);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > balance) {
+      setPaymentFeedback({ invoiceId: invoice.id, tone: 'error', text: t(locale, `Enter an amount between 0.01 and ${balance.toFixed(2)} JOD.`, `أدخل مبلغاً بين 0.01 و ${balance.toFixed(2)} دينار.`) });
+      return;
+    }
+    setPaymentBusy(true);
+    setPaymentFeedback(null);
+    const result = await recordInvoicePayment({
+      invoiceId: invoice.id,
+      amount,
+      receivedAt: paymentDate,
+      reference: paymentReference || undefined,
+      note: paymentNote || undefined,
+      idempotencyKey: paymentKey,
+    });
+    if (result) {
+      setInvoices((rows) => rows ? rows.map((row) => row.id === result.invoice.id ? result.invoice : row) : rows);
+      setPaymentInvoiceId(null);
+      setPaymentFeedback({ invoiceId: invoice.id, tone: 'ok', text: result.existed ? t(locale, 'Payment already recorded; balance refreshed.', 'الدفع مسجل مسبقاً؛ تم تحديث الرصيد.') : t(locale, `Payment recorded. Balance due: ${result.invoice.balanceDue.toFixed(2)} JOD.`, `تم تسجيل الدفع. الرصيد المتبقي: ${result.invoice.balanceDue.toFixed(2)} دينار.`) });
+    } else {
+      setPaymentFeedback({ invoiceId: invoice.id, tone: 'error', text: t(locale, 'Payment could not be recorded. Retry with the same form to avoid duplicates.', 'تعذر تسجيل الدفع. أعد المحاولة بنفس النموذج لتجنب التكرار.') });
+    }
+    setPaymentBusy(false);
   };
 
   /** HTML-escape a dynamic value before it is written into the print document.
@@ -248,7 +296,8 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
               </thead>
               <tbody>
                 {invoices.map((inv) => (
-                  <tr key={inv.id} className="border-b border-subtle/50 align-top">
+                  <Fragment key={inv.id}>
+                  <tr className="border-b border-subtle/50 align-top">
                     <td className="px-3 py-2 font-mono text-white whitespace-nowrap">{inv.invoiceNumber}</td>
                     <td className="px-3 py-2 text-muted">
                       <span className="font-mono text-slate-300">{inv.payload.declarationNo || inv.disbursementId}</span>
@@ -259,7 +308,9 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                       </span>
                     </td>
                     <td className="px-3 py-2 text-end font-mono text-white whitespace-nowrap">
-                      {formatJod(inv.total, locale)}
+                      <span className={balanceFor(inv) < inv.total ? 'text-amber-200' : ''}>{formatJod(balanceFor(inv), locale)}</span>
+                      <span className="block text-[10px] text-dim">{t(locale, 'of', 'من')} {formatJod(inv.total, locale)}</span>
+                      {balanceFor(inv) < inv.total && <span className="block text-[10px] text-emerald-300">{t(locale, 'Paid', 'مدفوع')} {formatJod(inv.paidAmount ?? inv.total - balanceFor(inv), locale)}</span>}
                     </td>
                     <td className="px-3 py-2 text-dim whitespace-nowrap">{inv.dueAt || '—'}</td>
                     <td className="px-3 py-2">
@@ -269,6 +320,16 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                     </td>
                     <td className="px-3 py-2 print:hidden">
                       <div className="flex flex-wrap gap-1.5">
+                        {canMutate && balanceFor(inv) > 0 && inv.status !== 'void' && (
+                          <button type="button" className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-accent/50 text-accent hover:bg-accent/10" onClick={() => openPaymentForm(inv)}>
+                            <Banknote size={11} />{t(locale, 'Record payment', 'تسجيل دفع')}
+                          </button>
+                        )}
+                        {inv.payments?.length > 0 && (
+                          <button type="button" className="text-[10px] px-2 py-0.5 rounded border border-subtle text-muted hover:text-white" onClick={() => setHistoryInvoiceId(historyInvoiceId === inv.id ? null : inv.id)}>
+                            {t(locale, `History (${inv.payments.length})`, `السجل (${inv.payments.length})`)}
+                          </button>
+                        )}
                         {canMutate &&
                           NEXT_STATUSES[inv.status].map((next) => (
                             <button
@@ -305,8 +366,27 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                           {t(locale, 'Print', 'طباعة')}
                         </button>
                       </div>
+                      {paymentFeedback?.invoiceId === inv.id && <p className={`mt-2 text-[10px] ${paymentFeedback.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>{paymentFeedback.text}</p>}
                     </td>
                   </tr>
+                  {paymentInvoiceId === inv.id && (
+                    <tr className="border-b border-accent/20 bg-accent/5">
+                      <td colSpan={6} className="px-3 py-3">
+                        <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_1fr_auto] md:items-end">
+                          <label className="text-[10px] text-dim">{t(locale, 'Payment amount (JOD)', 'مبلغ الدفع (دينار)')}<input autoFocus inputMode="decimal" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder={balanceFor(inv).toFixed(2)} className="mt-1 w-full rounded border border-subtle bg-navy-950 px-2 py-1.5 text-xs text-white" /></label>
+                          <label className="text-[10px] text-dim"><span className="inline-flex items-center gap-1"><CalendarDays size={11} />{t(locale, 'Received date', 'تاريخ الاستلام')}</span><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="mt-1 w-full rounded border border-subtle bg-navy-950 px-2 py-1.5 text-xs text-white" /></label>
+                          <label className="text-[10px] text-dim">{t(locale, 'Reference', 'المرجع')}<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={t(locale, 'Bank receipt / transfer ID', 'رقم إيصال / تحويل')} className="mt-1 w-full rounded border border-subtle bg-navy-950 px-2 py-1.5 text-xs text-white" /></label>
+                          <label className="text-[10px] text-dim">{t(locale, 'Note', 'ملاحظة')}<input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder={t(locale, 'Optional audit note', 'ملاحظة تدقيق اختيارية')} className="mt-1 w-full rounded border border-subtle bg-navy-950 px-2 py-1.5 text-xs text-white" /></label>
+                          <div className="flex gap-1.5"><button type="button" disabled={paymentBusy} onClick={() => void submitPayment(inv)} className="rounded-lg bg-accent px-3 py-1.5 text-[10px] font-semibold text-white disabled:opacity-50">{paymentBusy ? t(locale, 'Saving…', 'جارٍ الحفظ…') : t(locale, 'Save payment', 'حفظ الدفع')}</button><button type="button" onClick={() => setPaymentInvoiceId(null)} className="rounded-lg border border-subtle px-2 py-1.5 text-[10px] text-muted">×</button></div>
+                        </div>
+                        <p className="mt-2 text-[10px] text-dim">{t(locale, `Outstanding balance: ${balanceFor(inv).toFixed(2)} JOD. Payments are immutable audit entries; duplicate retries are safely ignored.`, `الرصيد المتبقي: ${balanceFor(inv).toFixed(2)} دينار. الدفعات قيود تدقيق غير قابلة للتعديل؛ تتم حماية الإعادات من التكرار.`)}</p>
+                      </td>
+                    </tr>
+                  )}
+                  {historyInvoiceId === inv.id && inv.payments?.length > 0 && (
+                    <tr className="border-b border-subtle/50 bg-navy-950/30"><td colSpan={6} className="px-3 py-3"><div className="space-y-1.5">{inv.payments.map((payment) => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-subtle px-3 py-2 text-[10px]"><span className="font-mono text-slate-300">{payment.receivedAt} · {payment.reference || t(locale, 'No reference', 'بلا مرجع')}</span><span className="font-mono text-emerald-300">{formatJod(payment.amount, locale)} {payment.currency}</span><span className="text-dim">{payment.note || ''}</span></div>)}</div></td></tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

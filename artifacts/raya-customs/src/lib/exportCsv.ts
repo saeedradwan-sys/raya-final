@@ -83,6 +83,9 @@ export function invoiceToCsv(inv: {
   gstRate: number;
   gstAmount: number;
   total: number;
+  paidAmount?: number;
+  balanceDue?: number;
+  payments?: { receivedAt: string; amount: number; currency: string; reference?: string | null; note?: string | null }[];
   issuedAt: string | null;
   dueAt: string | null;
   payload: { declarationNo?: string; clientNameEn?: string; lines?: { labelEn: string; labelAr: string; amount: number; kind: string }[] };
@@ -100,13 +103,19 @@ export function invoiceToCsv(inv: {
     `gst_rate,${inv.gstRate}`,
     `gst_amount,${inv.gstAmount}`,
     `total,${inv.total}`,
+    `paid_amount,${inv.paidAmount ?? 0}`,
+    `balance_due,${inv.balanceDue ?? inv.total}`,
+    `payment_count,${inv.payments?.length ?? 0}`,
     '',
     'label_en,label_ar,amount,kind',
   ];
   const body = (inv.payload.lines || []).map((r) =>
     [esc(r.labelEn), esc(r.labelAr), r.amount, r.kind].join(','),
   );
-  return [...head, ...body].join('\n');
+  const payments = inv.payments?.length
+    ? ['', 'received_at,amount,currency,reference,note', ...inv.payments.map((payment) => [payment.receivedAt, payment.amount, payment.currency, esc(payment.reference || ''), esc(payment.note || '')].join(','))]
+    : [];
+  return [...head, ...body, ...payments].join('\n');
 }
 
 /** Period GST/tax report export. */

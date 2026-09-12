@@ -216,6 +216,9 @@ export interface Invoice {
   total: number;
   issuedAt: string | null;
   dueAt: string | null;
+  paidAmount: number;
+  balanceDue: number;
+  payments: InvoicePayment[];
   payload: {
     declarationNo?: string;
     clientNameEn?: string;
@@ -223,6 +226,18 @@ export interface Invoice {
     mode?: string;
     lines?: StatementLine[];
   };
+  createdAt: string;
+}
+
+export interface InvoicePayment {
+  id: string;
+  invoiceId: string;
+  amount: number;
+  currency: string;
+  receivedAt: string;
+  reference: string | null;
+  note: string | null;
+  createdBy: string | null;
   createdAt: string;
 }
 
@@ -268,6 +283,27 @@ export async function updateInvoiceStatus(
       { method: 'PATCH', token, body: JSON.stringify({ status }) },
     );
     return res.invoice;
+  } catch {
+    return null;
+  }
+}
+
+export async function recordInvoicePayment(params: {
+  invoiceId: string;
+  amount: number;
+  receivedAt: string;
+  reference?: string;
+  note?: string;
+  idempotencyKey: string;
+}): Promise<{ invoice: Invoice; payment: InvoicePayment; existed: boolean } | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    return await apiFetch(`/accounting/invoices/${encodeURIComponent(params.invoiceId)}/payments`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(params),
+    });
   } catch {
     return null;
   }
