@@ -43,6 +43,32 @@ export async function apiFetch<T>(
   return data as T;
 }
 
+export async function apiDownload(
+  path: string,
+  opts: RequestInit & { token?: string | null } = {},
+): Promise<{ blob: Blob; filename: string | null }> {
+  const { token, headers, ...rest } = opts;
+  const h = new Headers(headers);
+  if (token) h.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(`${API_BASE}${path.replace(/^\/api/, '')}`, {
+    ...rest,
+    headers: h,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let body: unknown = text;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      /* keep text */
+    }
+    throw new ApiError(res.status, body);
+  }
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || null;
+  return { blob: await res.blob(), filename };
+}
+
 export async function apiHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/health`, { method: 'GET' });

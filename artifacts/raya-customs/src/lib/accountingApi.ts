@@ -4,7 +4,7 @@
  * back to the local calculation copies only when the API or staff session
  * is unavailable (dev without login).
  */
-import { apiFetch, apiHealth } from '@/lib/api';
+import { apiDownload, apiFetch, apiHealth } from '@/lib/api';
 import type { ClearingReconciliation, JournalLine } from '@/lib/types';
 import type { RecoveryItem } from '@/lib/recoveryQueue';
 
@@ -304,6 +304,22 @@ export async function recordInvoicePayment(params: {
       token,
       body: JSON.stringify(params),
     });
+  } catch {
+    return null;
+  }
+}
+
+export async function downloadInvoiceReceipt(
+  invoiceId: string,
+  paymentId?: string,
+): Promise<{ blob: Blob; filename: string | null } | null> {
+  const token = staffToken();
+  if (!token) return null;
+  try {
+    const suffix = paymentId
+      ? `/payments/${encodeURIComponent(paymentId)}/receipt.pdf`
+      : '/receipt.pdf';
+    return await apiDownload(`/accounting/invoices/${encodeURIComponent(invoiceId)}${suffix}`, { token });
   } catch {
     return null;
   }

@@ -300,6 +300,11 @@ export async function listInvoices(organizationId, disbursementId) {
   return invoiceRows.map((row) => enrichInvoice(row, paymentResult.rows.filter((payment) => payment.invoiceId === row.id)));
 }
 
+export async function getInvoiceById(invoiceId, organizationId) {
+  const invoices = await listInvoices(organizationId);
+  return invoices.find((invoice) => invoice.id === invoiceId) || null;
+}
+
 let filePaymentLock = Promise.resolve();
 function withFilePaymentLock(fn) {
   const run = filePaymentLock.then(fn, fn);

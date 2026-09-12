@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Banknote, CalendarDays, CheckCircle2, Clock3, FileSpreadsheet, Receipt, WalletCards } from 'lucide-react';
+import { Banknote, CalendarDays, CheckCircle2, Clock3, Download, FileSpreadsheet, Receipt, WalletCards } from 'lucide-react';
 import { useLocale } from '@/hooks/useLocale';
 import { t } from '@/lib/i18n';
 import { formatJod, clientStatementLines } from '@/lib/disbursementCalc';
@@ -9,6 +9,7 @@ import { appendAudit } from '@/lib/auditLog';
 import {
   fetchInvoices,
   fetchStatement,
+  downloadInvoiceReceipt,
   issueInvoiceForCase,
   recordInvoicePayment,
   updateInvoiceStatus,
@@ -68,6 +69,7 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentFeedback, setPaymentFeedback] = useState<{ invoiceId: string; tone: 'ok' | 'error'; text: string } | null>(null);
   const [historyInvoiceId, setHistoryInvoiceId] = useState<string | null>(null);
+  const [receiptBusyId, setReceiptBusyId] = useState<string | null>(null);
 
   const selectedCase = cases.find((c) => c.id === caseId) ?? cases[0];
 
@@ -142,6 +144,26 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
       setPaymentFeedback({ invoiceId: invoice.id, tone: 'error', text: t(locale, 'Payment could not be recorded. Retry with the same form to avoid duplicates.', 'تعذر تسجيل الدفع. أعد المحاولة بنفس النموذج لتجنب التكرار.') });
     }
     setPaymentBusy(false);
+  };
+
+  const downloadReceipt = async (invoice: Invoice, paymentId?: string) => {
+    const busyId = `${invoice.id}:${paymentId || 'latest'}`;
+    setReceiptBusyId(busyId);
+    const result = await downloadInvoiceReceipt(invoice.id, paymentId);
+    if (result) {
+      const url = URL.createObjectURL(result.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.filename || `raya-${invoice.invoiceNumber}-receipt.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setPaymentFeedback({ invoiceId: invoice.id, tone: 'ok', text: t(locale, 'PDF receipt downloaded.', 'تم تنزيل إيصال PDF.') });
+    } else {
+      setPaymentFeedback({ invoiceId: invoice.id, tone: 'error', text: t(locale, 'Receipt download failed. Check the staff session and try again.', 'فشل تنزيل الإيصال. تحقق من جلسة الموظف وحاول مجدداً.') });
+    }
+    setReceiptBusyId(null);
   };
 
   /** HTML-escape a dynamic value before it is written into the print document.
@@ -330,6 +352,11 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                             {t(locale, `History (${inv.payments.length})`, `السجل (${inv.payments.length})`)}
                           </button>
                         )}
+                        {inv.payments?.length > 0 && (
+                          <button type="button" disabled={receiptBusyId === `${inv.id}:latest`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-subtle text-muted hover:text-white disabled:opacity-50" onClick={() => void downloadReceipt(inv)}>
+                            <Download size={11} />{receiptBusyId === `${inv.id}:latest` ? '…' : 'PDF'}
+                          </button>
+                        )}
                         {canMutate &&
                           NEXT_STATUSES[inv.status].map((next) => (
                             <button
@@ -384,7 +411,7 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
                     </tr>
                   )}
                   {historyInvoiceId === inv.id && inv.payments?.length > 0 && (
-                    <tr className="border-b border-subtle/50 bg-navy-950/30"><td colSpan={6} className="px-3 py-3"><div className="space-y-1.5">{inv.payments.map((payment) => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-subtle px-3 py-2 text-[10px]"><span className="font-mono text-slate-300">{payment.receivedAt} · {payment.reference || t(locale, 'No reference', 'بلا مرجع')}</span><span className="font-mono text-emerald-300">{formatJod(payment.amount, locale)} {payment.currency}</span><span className="text-dim">{payment.note || ''}</span></div>)}</div></td></tr>
+                    <tr className="border-b border-subtle/50 bg-navy-950/30"><td colSpan={6} className="px-3 py-3"><div className="space-y-1.5">{inv.payments.map((payment) => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-subtle px-3 py-2 text-[10px]"><span className="font-mono text-slate-300">{payment.receivedAt} · {payment.reference || t(locale, 'No reference', 'بلا مرجع')}</span><span className="font-mono text-emerald-300">{formatJod(payment.amount, locale)} {payment.currency}</span><span className="text-dim">{payment.note || ''}</span><button type="button" disabled={receiptBusyId === `${inv.id}:${payment.id}`} className="inline-flex items-center gap-1 rounded border border-subtle px-2 py-1 text-muted hover:text-white disabled:opacity-50" onClick={() => void downloadReceipt(inv, payment.id)}><Download size={11} />{receiptBusyId === `${inv.id}:${payment.id}` ? '…' : t(locale, 'Receipt PDF', 'إيصال PDF')}</button></div>)}</div></td></tr>
                   )}
                   </Fragment>
                 ))}
