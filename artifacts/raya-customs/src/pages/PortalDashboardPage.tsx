@@ -30,6 +30,7 @@ import {
   type ServiceRequest,
   type ServiceRequestType,
 } from '@/lib/serviceRequests';
+import PortalNotificationCenter from '@/components/portal/PortalNotificationCenter';
 
 const STATUS_STYLE: Record<ShipmentStatus, string> = {
   pre_arrival: 'text-slate-300 bg-slate-500/15',
@@ -418,6 +419,7 @@ export default function PortalDashboardPage() {
           </button>
         </div>
       )}
+      <PortalNotificationCenter session={session} />
       {/* Client Portal v2 — Self-service actions */}
       <div className="mb-8 rounded-xl border border-accent/30 bg-navy-900/40 p-5">
         <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">

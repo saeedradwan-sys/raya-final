@@ -1,5 +1,6 @@
 import { Search } from 'lucide-react';
 import HsTariffSearch from '@/components/hs/HsTariffSearch';
+import DutyEstimator from '@/components/hs/DutyEstimator';
 import { useLocale } from '@/hooks/useLocale';
 import { t } from '@/lib/i18n';
 
@@ -31,6 +32,7 @@ export default function HsSearchPage() {
       </div>
 
       <HsTariffSearch locale={locale} />
+      <DutyEstimator locale={locale} />
     </div>
   );
 }

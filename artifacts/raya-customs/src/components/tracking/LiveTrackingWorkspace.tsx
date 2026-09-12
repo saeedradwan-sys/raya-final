@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,6 +8,7 @@ import {
   Radio,
   Search,
   Ship,
+  Webhook,
 } from 'lucide-react';
 import { useLocale } from '@/hooks/useLocale';
 import { useStaffAuth } from '@/hooks/useStaffAuth';
@@ -21,6 +22,7 @@ import {
 import { ACT_N4_CAP_URL } from '@/lib/containerTracking';
 import { getBestTerminalTracking, type TerminalTrackingResult, type TrackingAttempt } from '@/lib/terminalApis';
 import type { NormalizedDcsaEvent } from '@/lib/dcsaTypes';
+import { apiFetch } from '@/lib/api';
 
 const EVENT_LABELS: Record<NormalizedDcsaEvent['eventType'], { en: string; ar: string }> = {
   LOAD: { en: 'Loaded on vessel', ar: 'تم التحميل على السفينة' },
@@ -102,6 +104,7 @@ export default function LiveTrackingWorkspace() {
   const [result, setResult] = useState<TerminalTrackingResult | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [integrationInfo, setIntegrationInfo] = useState<{ tracking?: { providers?: Record<string, boolean>; mode?: string }; webhook?: { endpoint?: string; signature?: string } } | null>(null);
 
   const requestSequence = useRef(0);
   const normalizedDraft = reference.trim().toUpperCase().replace(/\s+/g, '');
@@ -127,6 +130,15 @@ export default function LiveTrackingWorkspace() {
     });
   }, [result]);
   const latestEvent = orderedEvents.length ? orderedEvents[orderedEvents.length - 1] : null;
+
+  useEffect(() => {
+    if (!session?.accessToken) return;
+    let active = true;
+    void apiFetch<typeof integrationInfo>('/tracking/integrations', { token: session.accessToken })
+      .then((value) => { if (active) setIntegrationInfo(value); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [session?.accessToken]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -340,6 +352,19 @@ export default function LiveTrackingWorkspace() {
                   {result.attempts.map((attempt) => <AttemptBadge key={attempt.provider} attempt={attempt} locale={locale} />)}
                 </div>
                 <p className="mt-3 text-[10px] leading-relaxed text-dim">{result.disclaimer}</p>
+              </details>
+            ) : null}
+            {integrationInfo ? (
+              <details className="rounded-xl border border-subtle bg-navy-950/45 p-4">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-300"><Webhook size={13} className="me-1 inline text-accent" />{t(locale, 'Integration readiness', 'جاهزية التكامل')}</summary>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {Object.entries(integrationInfo.tracking?.providers || {}).map(([provider, configured]) => (
+                    <div key={provider} className={`rounded-lg border px-3 py-2 text-[10px] ${configured ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200' : 'border-subtle bg-navy-950/60 text-dim'}`}>
+                      <span className="font-semibold">{PROVIDER_LABELS[provider] || provider}</span><span className="block mt-1">{configured ? t(locale, 'Configured', 'مهيأ') : t(locale, 'Simulation / not configured', 'محاكاة / غير مهيأ')}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-[10px] leading-relaxed text-dim">{t(locale, `Webhook: ${integrationInfo.webhook?.endpoint || 'not configured'} · ${integrationInfo.webhook?.signature || 'not configured'}`, `الويب هوك: ${integrationInfo.webhook?.endpoint || 'غير مهيأ'} · ${integrationInfo.webhook?.signature || 'غير مهيأ'}`)}</p>
               </details>
             ) : null}
           </div>
