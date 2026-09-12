@@ -13,12 +13,13 @@ import { Container,
   FolderLock,
   Bot,
   AlertTriangle,
+  Clock,
 } from 'lucide-react';
 import { useLocale } from '@/hooks/useLocale';
 import { t } from '@/lib/i18n';
 import { useStaffAuth } from '@/hooks/useStaffAuth';
 import { DEMO_STAFF_TOKENS, staffSessionRemainingMs } from '@/lib/staffAuth';
-import { formatDateTime } from '@/lib/dates';
+import { daysUntil, formatDateTime } from '@/lib/dates';
 import { formatSessionRemaining } from '@/content/portalI18n';
 import { allShipments } from '@/lib/recordStore';
 import { buildOpsAlerts } from '@/lib/opsAlerts';
@@ -134,6 +135,11 @@ export default function StaffPage() {
   const [auditTotal, setAuditTotal] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const shipmentSnapshot = allShipments();
+  const opsAlerts = buildOpsAlerts(shipmentSnapshot);
+  const redLaneCount = shipmentSnapshot.filter((shipment) => shipment.selectivityLane === 'red').length;
+  const freeTimeRiskCount = shipmentSnapshot.filter((shipment) => Boolean(shipment.lastFreeDay && daysUntil(shipment.lastFreeDay) <= 2)).length;
+  const pcaCount = shipmentSnapshot.filter((shipment) => shipment.pcaOpen || shipment.selectivityLane === 'blue').length;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -222,6 +228,27 @@ export default function StaffPage() {
           </div>
 
           <ServiceRequestQueue />
+
+          <section className="ops-pulse mb-8" aria-labelledby="ops-pulse-title">
+            <div className="ops-pulse__header">
+              <div>
+                <p className="ops-pulse__eyebrow">{t(locale, 'Raya operations pulse', 'نبض عمليات راية')}</p>
+                <h2 id="ops-pulse-title">{t(locale, 'Make the next move visible.', 'اجعل الخطوة التالية واضحة.')}</h2>
+              </div>
+              <span className="ops-pulse__live"><span />{t(locale, 'Live workspace', 'مساحة حية')}</span>
+            </div>
+            <div className="ops-pulse__metrics">
+              <Link to="/staff/tracking"><Container size={15} /><span>{t(locale, 'Open shipments', 'الشحنات المفتوحة')}</span><strong>{shipmentSnapshot.length}</strong></Link>
+              <Link to="/staff/tracking"><AlertTriangle size={15} /><span>{t(locale, 'Active alerts', 'التنبيهات النشطة')}</span><strong>{opsAlerts.length}</strong></Link>
+              <Link to="/asycuda"><CheckCircle2 size={15} /><span>{t(locale, 'Red lane', 'المسرب الأحمر')}</span><strong>{redLaneCount}</strong></Link>
+              <Link to="/act"><Clock size={15} /><span>{t(locale, 'Free-time risk', 'خطر المدة المجانية')}</span><strong>{freeTimeRiskCount}</strong></Link>
+              <Link to="/asycuda"><FolderLock size={15} /><span>{t(locale, 'PCA / blue lane', 'تدقيق لاحق / أزرق')}</span><strong>{pcaCount}</strong></Link>
+            </div>
+            <div className="ops-pulse__footer">
+              <span>{t(locale, `${opsAlerts.length ? opsAlerts.length : 'No'} priority signals need review before the next handoff.`, `${opsAlerts.length || 'لا'} إشارات أولوية تحتاج مراجعة قبل التسليم التالي.`)}</span>
+              <Link to="/staff/accounting">{t(locale, 'Open accounting controls', 'فتح ضوابط المحاسبة')} →</Link>
+            </div>
+          </section>
 
           <div className="mb-8">
             <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">

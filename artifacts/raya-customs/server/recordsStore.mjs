@@ -107,6 +107,22 @@ export async function listShipmentsForTax(taxNumber, organizationId) {
   return result.rows.map((row) => row.source_payload || {});
 }
 
+export async function listShipmentsByContainer(containerNumber, organizationId = null) {
+  const normalized = String(containerNumber || '').trim().toUpperCase();
+  if (!normalized) return [];
+  if (!databaseEnabled()) {
+    return (await allShipmentsMerged()).filter((shipment) => String(shipment.containerNo || '').trim().toUpperCase() === normalized);
+  }
+  const result = await getDatabase().query(
+    `SELECT source_payload
+     FROM cases
+     WHERE container_number = $1 AND ($2::text IS NULL OR organization_id = $2)
+     ORDER BY updated_at DESC`,
+    [normalized, organizationId || null],
+  );
+  return result.rows.map((row) => row.source_payload || {});
+}
+
 export async function listDisbursements(organizationId) {
   if (!databaseEnabled()) return readFileRows(DISB_FILE);
   const result = await getDatabase().query(

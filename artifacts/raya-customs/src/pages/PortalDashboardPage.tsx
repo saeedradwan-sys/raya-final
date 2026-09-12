@@ -364,6 +364,17 @@ export default function PortalDashboardPage() {
   if (!session) return null;
 
   const remaining = sessionRemainingMs(session);
+  const activeShipments = shipments.filter((shipment) => !['delivered', 'closed'].includes(shipment.status));
+  const releasedShipments = shipments.filter((shipment) => ['released', 'delivered', 'closed'].includes(shipment.status));
+  const urgentShipments = shipments.filter((shipment) => {
+    if (!shipment.lastFreeDay) return false;
+    const days = Math.ceil((new Date(`${shipment.lastFreeDay}T23:59:59`).getTime() - Date.now()) / 86_400_000);
+    return days <= 2 && !['delivered', 'closed'].includes(shipment.status);
+  });
+  const pendingDocuments = shipments.reduce(
+    (sum, shipment) => sum + shipment.documents.filter((document) => !document.available).length,
+    0,
+  );
 
   return (
     <div
@@ -419,6 +430,23 @@ export default function PortalDashboardPage() {
           </button>
         </div>
       )}
+
+      <section className="portal-overview mb-8" aria-label={t(locale, 'Shipment portfolio overview', 'ملخص محفظة الشحنات')}>
+        <div className="portal-overview__intro">
+          <div>
+            <p className="portal-overview__eyebrow">{t(locale, 'Your clearance portfolio', 'محفظة التخليص الخاصة بك')}</p>
+            <h2>{t(locale, 'Know what needs your attention next.', 'اعرف ما يحتاج انتباهك تالياً.')}</h2>
+          </div>
+          <p>{t(locale, 'Raya keeps the high-signal items together so you can act before a terminal deadline or document hold.', 'تجمع راية البنود المهمة حتى تتصرف قبل انتهاء مهلة المحطة أو توقف الوثائق.')}</p>
+        </div>
+        <div className="portal-overview__metrics">
+          <div><Package size={15} /><span>{t(locale, 'Active shipments', 'الشحنات النشطة')}</span><strong>{activeShipments.length}</strong></div>
+          <div><CheckCircle2 size={15} /><span>{t(locale, 'Released / closed', 'مفرج / مغلق')}</span><strong>{releasedShipments.length}</strong></div>
+          <div className={urgentShipments.length ? 'portal-overview__metric--risk' : ''}><Clock size={15} /><span>{t(locale, 'Free-time watch', 'مراقبة المدة المجانية')}</span><strong>{urgentShipments.length}</strong></div>
+          <div><FileText size={15} /><span>{t(locale, 'Documents pending', 'وثائق معلقة')}</span><strong>{pendingDocuments}</strong></div>
+        </div>
+      </section>
+
       <PortalNotificationCenter session={session} />
       {/* Client Portal v2 — Self-service actions */}
       <div className="mb-8 rounded-xl border border-accent/30 bg-navy-900/40 p-5">

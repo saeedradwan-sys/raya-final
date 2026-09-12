@@ -3,6 +3,7 @@
  * Run: node server/index.mjs
  */
 import http from 'node:http';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PRIVATE_RUNTIME } from './privateConfig.mjs';
 import { signJwt, verifyJwt } from './jwt.mjs';
 import { STAFF_TOKENS, PORTAL_CREDENTIALS, SHIPMENTS_BY_TAX } from './data.mjs';
@@ -24,6 +25,7 @@ import {
   listShipments as listUserShipmentsOnly,
   allShipmentsMerged,
   listShipmentsForTax,
+  listShipmentsByContainer,
   listDisbursements as listUserDisbursements,
 
   upsertShipment,
@@ -65,6 +67,14 @@ import {
 } from './refreshStore.mjs';
 import { getBestTerminalTracking, trackingProviderInfo } from './terminalTracking.mjs';
 import { pickAdapter, describePayloadShape } from './trackingAdapters.mjs';
+import { appendTrackingEvents, listTrackingEvents } from './trackingEventStore.mjs';
+import {
+  appendNotification,
+  getNotificationPreferences,
+  listNotifications,
+  markNotificationsRead,
+  saveNotificationPreferences,
+} from './notificationStore.mjs';
 import { ask, stream as llamaStream, llamaProviderInfo, LlamaDisabledError } from './llamaClient.mjs';
 import {
   buildHsPrompts,
@@ -252,6 +262,104 @@ function readBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let tooLarge = false;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > PRIVATE_RUNTIME.maxBodyBytes) {
+        tooLarge = true;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (tooLarge) return reject(new Error('body_too_large'));
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', reject);
+  });
+}
+
+function verifyTrackingWebhookSignature(req, rawBody) {
+  const secret = String(process.env.RAYA_MAERSK_WEBHOOK_SECRET || '').trim();
+  const allowUnsigned = !PRIVATE_RUNTIME.isPrivateDeployment
+    && String(process.env.RAYA_ALLOW_UNSIGNED_TRACKING_WEBHOOKS || '').toLowerCase() === 'true';
+  if (!secret) return { ok: allowUnsigned, reason: allowUnsigned ? 'unsigned_development' : 'webhook_secret_not_configured' };
+  const header = String(req.headers.sign || req.headers.authorization || '').trim();
+  const received = header.replace(/^HmacSHA256\s+/i, '').replace(/^HMAC-SHA256\s+/i, '').trim();
+  if (!received) return { ok: false, reason: 'signature_missing' };
+  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64');
+  const receivedBuffer = Buffer.from(received);
+  const expectedBuffer = Buffer.from(expected);
+  return { ok: receivedBuffer.length === expectedBuffer.length && timingSafeEqual(receivedBuffer, expectedBuffer), reason: 'signature_invalid' };
+}
+
+function trackingWebhookEvents(body) {
+  const data = body?.data ?? body;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.events)) return data.events;
+  for (const key of ['shipmentEvent', 'equipmentEvent', 'transportEvent']) {
+    if (data?.[key]) return Array.isArray(data[key]) ? data[key] : [data[key]];
+  }
+  if (data && typeof data === 'object' && (
+    data.equipmentEventTypeCode || data.eventClassifierCode || data.eventDateTime || data.equipmentReference
+  )) return [data];
+  return [];
+}
+
+function trackingWebhookReference(body, events) {
+  const candidates = [
+    body?.containerNumber,
+    body?.equipmentReference,
+    body?.reference,
+    body?.data?.equipmentReference,
+    body?.data?.equipmentEvent?.equipmentReference,
+    events[0]?.equipmentReference,
+    events[0]?.containerNo,
+    events[0]?.equipment?.equipmentReference,
+  ];
+  return candidates.find((value) => String(value || '').trim()) || null;
+}
+
+function trackingNotificationText(event) {
+  const code = String(event?.eventType || event?.equipmentEventTypeCode || '').toUpperCase();
+  const labels = {
+    LOAD: ['Container loaded on vessel', 'تم تحميل الحاوية على السفينة'],
+    DEPA: ['Vessel departed', 'غادرت السفينة'],
+    ARRI: ['Vessel arrived', 'وصلت السفينة'],
+    DISCH: ['Container discharged', 'تم تفريغ الحاوية'],
+    GTIN: ['Container entered terminal', 'دخلت الحاوية إلى المحطة'],
+    GTOT: ['Container gated out', 'خرجت الحاوية من البوابة'],
+    AVPU: ['Container available for pickup', 'الحاوية جاهزة للاستلام'],
+    AVDO: ['Container available for drop-off', 'الحاوية جاهزة للإرجاع'],
+  };
+  return labels[code] || ['New carrier milestone', 'مرحلة جديدة من الناقل'];
+}
+
+async function notifyTrackedShipment(reference, event, organizationId = null) {
+  const matches = await listShipmentsByContainer(reference, organizationId).catch(() => []);
+  if (!matches.length) return 0;
+  const [titleEn, titleAr] = trackingNotificationText(event);
+  let count = 0;
+  for (const shipment of matches) {
+    await appendNotification({
+      organizationId,
+      taxNumber: shipment.taxNumber,
+      shipmentId: shipment.id,
+      kind: 'carrier_milestone',
+      titleEn,
+      titleAr,
+      bodyEn: `${reference} · ${event.locationName || event.locationCode || 'Carrier update'}${event.eventTime ? ` · ${event.eventTime}` : ''}`,
+      bodyAr: `${reference} · ${event.locationName || event.locationCode || 'تحديث الناقل'}${event.eventTime ? ` · ${event.eventTime}` : ''}`,
+    });
+    count += 1;
+  }
+  return count;
 }
 
 function getBearer(req) {
@@ -496,6 +604,57 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // --- Carrier webhook ingestion ---
+    // Maersk's DCSA webhook posts CloudEvent-wrapped milestones and authenticates
+    // the request with HMAC or OAuth. This endpoint accepts the HMAC form and
+    // stores normalized events for the matching Raya shipment.
+    if (req.method === 'POST' && (path === '/api/webhooks/tracking/maersk' || path === '/api/webhooks/tracking')) {
+      const rawBody = await readRawBody(req);
+      const signature = verifyTrackingWebhookSignature(req, rawBody);
+      if (!signature.ok) {
+        const status = signature.reason === 'webhook_secret_not_configured' ? 503 : 401;
+        return send(res, status, { ok: false, error: signature.reason });
+      }
+      let body;
+      try {
+        body = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        return send(res, 400, { ok: false, error: 'invalid_json' });
+      }
+      const events = trackingWebhookEvents(body);
+      const reference = trackingWebhookReference(body, events);
+      if (!reference || !events.length) return send(res, 202, { ok: true, accepted: false, reason: 'no_equipment_events' });
+      const payload = events.length === 1 ? events : { events };
+      const adapter = pickAdapter(payload);
+      if (!adapter) return send(res, 422, { ok: false, error: 'unrecognised_payload', payloadShape: describePayloadShape(payload) });
+      const normalized = adapter.normalize(payload);
+      const stored = await appendTrackingEvents(reference, normalized, 'maersk-webhook');
+      let notified = 0;
+      for (const event of normalized) notified += await notifyTrackedShipment(reference, event);
+      return send(res, 202, { ok: true, accepted: true, reference, source: adapter.source, normalizedCount: normalized.length, insertedCount: stored.inserted, notified });
+    }
+
+    if (req.method === 'GET' && path === '/api/tracking/integrations') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['shipments:read'] });
+      if (!payload) return;
+      return send(res, 200, {
+        tracking: trackingProviderInfo(),
+        webhook: {
+          endpoint: '/api/webhooks/tracking/maersk',
+          signature: String(process.env.RAYA_MAERSK_WEBHOOK_SECRET || '').trim() ? 'hmac-sha256' : 'not_configured',
+          accepts: ['CloudEvent', 'DCSA equipment events'],
+        },
+      });
+    }
+
+    if (req.method === 'GET' && path === '/api/tracking/events') {
+      const payload = requireAuth(req, res, { realm: 'staff', permissions: ['shipments:read'] });
+      if (!payload) return;
+      const reference = url.searchParams.get('reference');
+      if (!reference) return send(res, 400, { error: 'reference_required' });
+      return send(res, 200, { events: await listTrackingEvents(reference, payload.organizationId, url.searchParams.get('limit')) });
+    }
+
     // --- Staff-only container and B/L provider tracking ---
     if (req.method === 'GET' && path === '/api/tracking/container') {
       const payload = requireAuth(req, res, { realm: 'staff', permissions: ['shipments:read'] });
@@ -560,13 +719,22 @@ const server = http.createServer(async (req, res) => {
       }
 
       const events = adapter.normalize(rawPayload);
+      const stored = containerNumber
+        ? await appendTrackingEvents(containerNumber, events, body.source || adapter.source, authPayload.organizationId)
+        : { inserted: 0 };
+      let notified = 0;
+      if (containerNumber) {
+        for (const event of events) notified += await notifyTrackedShipment(containerNumber, event, authPayload.organizationId);
+      }
       return send(res, 200, {
         ok: true,
         source: adapter.source,
         containerNumber,
         events,
         count: events.length,
-        disclaimer: 'Events are normalised but not persisted by this endpoint.',
+        insertedCount: stored.inserted,
+        notified,
+        disclaimer: 'Events are normalized, deduplicated, and stored when a container number is supplied.',
       });
     }
 
@@ -895,6 +1063,33 @@ const server = http.createServer(async (req, res) => {
       });
       return send(res, 200, { requests });
     }
+
+    if (req.method === 'GET' && path === '/api/portal/notifications') {
+      const payload = requireAuth(req, res, { realm: 'portal' });
+      if (!payload) return;
+      const taxNumber = payload.taxNumber || payload.sub;
+      const notifications = await listNotifications(taxNumber, payload.organizationId, payload.shipmentIds || [], url.searchParams.get('limit'));
+      const preferences = await getNotificationPreferences(taxNumber, payload.organizationId);
+      return send(res, 200, { notifications, preferences });
+    }
+
+    if (req.method === 'PATCH' && path === '/api/portal/notifications/preferences') {
+      const payload = requireAuth(req, res, { realm: 'portal' });
+      if (!payload) return;
+      const body = await readBody(req);
+      const taxNumber = payload.taxNumber || payload.sub;
+      const preferences = await saveNotificationPreferences(taxNumber, payload.organizationId, body);
+      return send(res, 200, { preferences });
+    }
+
+    if (req.method === 'POST' && path === '/api/portal/notifications/read') {
+      const payload = requireAuth(req, res, { realm: 'portal' });
+      if (!payload) return;
+      const body = await readBody(req);
+      const ids = Array.isArray(body.ids) ? body.ids.filter((id) => typeof id === 'string').slice(0, 100) : [];
+      return send(res, 200, await markNotificationsRead(payload.taxNumber || payload.sub, payload.organizationId, ids));
+    }
+
     if (req.method === 'POST' && path === '/api/auth/validate') {
       const body = await readBody(req);
       const token = body.token || getBearer(req);
@@ -1095,11 +1290,23 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && path === '/api/accounting/summary') {
       const payload = requireAuth(req, res, { realm: 'staff', permissions: ['clearing:read'] });
       if (!payload) return;
-      const cases = await listUserDisbursements(payload.organizationId);
+      const [cases, invoices, journalEntries] = await Promise.all([
+        listUserDisbursements(payload.organizationId),
+        listInvoices(payload.organizationId),
+        listJournalEntries(payload.organizationId),
+      ]);
+      const overdueInvoices = invoices.filter((invoice) => invoice.status === 'overdue');
       return send(res, 200, {
         metrics: serverPortfolioMetrics(cases),
         recoveryQueue: buildServerRecoveryQueue(cases),
         caseCount: cases.length,
+        financeControls: {
+          postedJournalCount: journalEntries.length,
+          unbalancedJournalCount: journalEntries.filter((entry) => !entry.balanced).length,
+          openInvoiceCount: invoices.filter((invoice) => !['paid', 'void'].includes(invoice.status)).length,
+          overdueInvoiceCount: overdueInvoices.length,
+          overdueAmount: serverRound2(overdueInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0)),
+        },
       });
     }
 

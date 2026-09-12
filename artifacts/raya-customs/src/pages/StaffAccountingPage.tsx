@@ -36,6 +36,7 @@ import {
   saveReconAdjustments,
   resolveReconItem,
   type AccountingMetrics,
+  type FinanceControls,
   type JournalEntry,
   type ReconResolution,
   type ServerJournal,
@@ -45,6 +46,7 @@ import type { RecoveryItem } from '@/lib/recoveryQueue';
 import InvoicesSection from '@/pages/accounting/InvoicesSection';
 import GstSection from '@/pages/accounting/GstSection';
 import ReferenceSection from '@/pages/accounting/ReferenceSection';
+import FinanceControlTower from '@/components/accounting/FinanceControlTower';
 
 /** Demo reconciliation date (kept stable so the teaching content matches). */
 const RECON_AS_OF = '2026-07-25';
@@ -105,6 +107,7 @@ export default function StaffAccountingPage() {
   const [serverSummary, setServerSummary] = useState<{
     metrics: AccountingMetrics;
     recoveryQueue: RecoveryItem[];
+    financeControls?: FinanceControls;
   } | null>(null);
   const [serverRecon, setServerRecon] = useState<ClearingReconciliation | null>(null);
   const [resolutions, setResolutions] = useState<Record<string, ReconResolution>>({});
@@ -150,19 +153,27 @@ export default function StaffAccountingPage() {
 
   const localMetrics = useMemo(() => portfolioMetrics(cases), [cases]);
   const metrics = serverSummary?.metrics ?? localMetrics;
-  /** as-of = today demo; optional GL timing difference on 122100 for teaching */
+  /** Local fallback uses the same visible GL adjustment state as the server path. */
   const localRecon = useMemo(
     () =>
       buildClearingReconciliation(cases, RECON_AS_OF, {
-        glAdjust122100: 50, // timing: bank paid, journal lag (demo reconciling item)
+        glAdjust122100: Number(adjust122100) || 0,
+        glAdjust222100: Number(adjust222100) || 0,
       }),
-    [cases],
+    [adjust122100, adjust222100, cases],
   );
   const recon = serverRecon ?? localRecon;
   const recoveryQueue = useMemo(
     () => serverSummary?.recoveryQueue ?? buildRecoveryQueue(cases),
     [serverSummary, cases],
   );
+  const financeControls: FinanceControls = serverSummary?.financeControls ?? {
+    postedJournalCount: postedEntries?.length ?? 0,
+    unbalancedJournalCount: postedEntries?.filter((entry) => !entry.balanced).length ?? 0,
+    openInvoiceCount: 0,
+    overdueInvoiceCount: 0,
+    overdueAmount: 0,
+  };
   /** Aging days per case from the reconciliation subledger, for the recovery board. */
   const agingByCase = useMemo(() => {
     const map: Record<string, { days: number; bucket: string }> = {};
@@ -257,6 +268,14 @@ export default function StaffAccountingPage() {
           )}
         </p>
       </div>
+
+      <FinanceControlTower
+        metrics={metrics}
+        controls={financeControls}
+        recoveryQueue={recoveryQueue}
+        recon={recon}
+        onNavigate={setTab}
+      />
 
       {/* Tabs */}
       <nav

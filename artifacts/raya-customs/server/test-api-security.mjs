@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const port = 18787;
 const root = await mkdtemp(path.join(os.tmpdir(), 'raya-api-security-'));
-const child = spawn(process.execPath, ['server/index.mjs'], {
+const child = spawn(process.execPath, ['server/raya-api/index.mjs'], {
   cwd: process.cwd(),
   env: {
     ...process.env,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileSpreadsheet, Receipt } from 'lucide-react';
+import { CheckCircle2, Clock3, FileSpreadsheet, Receipt, WalletCards } from 'lucide-react';
 import { useLocale } from '@/hooks/useLocale';
 import { t } from '@/lib/i18n';
 import { formatJod, clientStatementLines } from '@/lib/disbursementCalc';
@@ -89,6 +89,12 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
 
   const statementLines =
     serverStatement ?? (selectedCase ? clientStatementLines(selectedCase) : []);
+  const invoiceRows = invoices ?? [];
+  const invoiceKpis = {
+    open: invoiceRows.filter((invoice) => !['paid', 'void'].includes(invoice.status)).reduce((sum, invoice) => sum + invoice.total, 0),
+    overdue: invoiceRows.filter((invoice) => invoice.status === 'overdue').reduce((sum, invoice) => sum + invoice.total, 0),
+    collected: invoiceRows.filter((invoice) => invoice.status === 'paid').reduce((sum, invoice) => sum + invoice.total, 0),
+  };
 
   /** HTML-escape a dynamic value before it is written into the print document.
    * Invoice payload fields originate from persisted disbursement data, so
@@ -133,6 +139,23 @@ export default function InvoicesSection({ cases, canMutate, serverAvailable }: P
 
   return (
     <div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 mb-6">
+        <div className="rounded-xl border border-subtle bg-navy-900/70 p-4">
+          <div className="flex items-center gap-2 text-[11px] text-dim"><WalletCards size={14} className="text-accent" />{t(locale, 'Open receivable', 'الذمم المفتوحة')}</div>
+          <p className="mt-2 font-mono text-lg font-semibold text-white">{formatJod(invoiceKpis.open, locale)}</p>
+          <p className="mt-1 text-[10px] text-dim">{invoiceRows.filter((invoice) => !['paid', 'void'].includes(invoice.status)).length} {t(locale, 'open invoices', 'فواتير مفتوحة')}</p>
+        </div>
+        <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
+          <div className="flex items-center gap-2 text-[11px] text-amber-100"><Clock3 size={14} />{t(locale, 'Overdue watch', 'مراقبة المتأخرات')}</div>
+          <p className="mt-2 font-mono text-lg font-semibold text-amber-200">{formatJod(invoiceKpis.overdue, locale)}</p>
+          <p className="mt-1 text-[10px] text-amber-100/70">{invoiceRows.filter((invoice) => invoice.status === 'overdue').length} {t(locale, 'need collection follow-up', 'تحتاج متابعة التحصيل')}</p>
+        </div>
+        <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4">
+          <div className="flex items-center gap-2 text-[11px] text-emerald-100"><CheckCircle2 size={14} />{t(locale, 'Collected', 'المحصّل')}</div>
+          <p className="mt-2 font-mono text-lg font-semibold text-emerald-200">{formatJod(invoiceKpis.collected, locale)}</p>
+          <p className="mt-1 text-[10px] text-emerald-100/70">{invoiceRows.filter((invoice) => invoice.status === 'paid').length} {t(locale, 'paid invoices', 'فواتير مدفوعة')}</p>
+        </div>
+      </div>
       {/* Issue invoice */}
       <div className="rounded-xl bg-elevated border border-subtle p-6 mb-8">
         <div className="flex items-center gap-2 mb-2">

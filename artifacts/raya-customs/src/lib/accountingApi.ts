@@ -17,6 +17,14 @@ export interface AccountingMetrics {
   openCount: number;
 }
 
+export interface FinanceControls {
+  postedJournalCount: number;
+  unbalancedJournalCount: number;
+  openInvoiceCount: number;
+  overdueInvoiceCount: number;
+  overdueAmount: number;
+}
+
 export interface ServerJournal {
   lines: JournalLine[];
   passThrough: number;
@@ -62,6 +70,7 @@ export async function accountingApiAvailable(): Promise<boolean> {
 export async function fetchAccountingSummary(): Promise<{
   metrics: AccountingMetrics;
   recoveryQueue: RecoveryItem[];
+  financeControls?: FinanceControls;
 } | null> {
   const token = staffToken();
   if (!token) return null;

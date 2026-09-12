@@ -368,7 +368,7 @@ export default function StaffAssistPage() {
                     <input
                       type="file"
                       multiple
-                      webkitdirectory=""
+                      {...({ webkitdirectory: "" } as Record<string, string>)}
                       className="hidden"
                       onChange={async (e) => {
                         const files = Array.from(e.target.files || []);
