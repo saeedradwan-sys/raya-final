@@ -1,236 +1,203 @@
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
-  Building2,
-  CheckCircle2,
-  Container,
-  FileCheck2,
-  GitBranch,
-  LockKeyhole,
-  Search,
+  ArrowUpRight,
+  Boxes,
+  Check,
+  Clock3,
+  FileText,
+  Globe2,
+  MapPin,
+  Network,
+  Route,
   ShieldCheck,
+  Ship,
   Sparkles,
+  Waypoints,
 } from 'lucide-react';
 import { useLocale } from '@/hooks/useLocale';
 import { t } from '@/lib/i18n';
 
-const PATHS = [
+const SERVICES = [
   {
-    icon: Container,
-    titleEn: 'Track your shipment',
-    titleAr: 'تتبّع شحنتك',
-    bodyEn: 'Clients can follow shipment status, key documents, free-time milestones, and next steps in one private view.',
-    bodyAr: 'يمكن للعملاء متابعة حالة الشحنة والمستندات الأساسية ومواعيد المدة المجانية والخطوات التالية في عرض خاص واحد.',
-    href: '/portal',
-    labelEn: 'Client portal',
-    labelAr: 'بوابة العملاء',
-    featured: true,
-  },
-  {
-    icon: ShieldCheck,
-    titleEn: 'Manage company operations',
-    titleAr: 'إدارة عمليات الشركة',
-    bodyEn: 'Staff access cases, documents, classification, accounting, operational alerts, and accountable handoffs.',
-    bodyAr: 'يصل الموظفون إلى الملفات والمستندات والتصنيف والمحاسبة والتنبيهات التشغيلية وعمليات التسليم الواضحة.',
-    href: '/staff',
-    labelEn: 'Staff workspace',
-    labelAr: 'مساحة الموظفين',
-    featured: false,
-  },
-  {
-    icon: GitBranch,
-    titleEn: 'Plan a clearance',
-    titleAr: 'التخطيط للتخليص',
-    bodyEn: 'Explore the Jordan clearance workflow, HS search, requirements, authorities, and legal research before work begins.',
-    bodyAr: 'استكشف سير التخليص الأردني وبحث HS والمتطلبات والجهات والبحث القانوني قبل بدء العمل.',
+    number: '01',
+    icon: Ship,
+    titleEn: 'Clear the hard part',
+    titleAr: 'ننجز الجزء الأصعب',
+    bodyEn: 'Customs clearance that turns documents, duties, permits, and port steps into one accountable plan.',
+    bodyAr: 'تخليص جمركي يحوّل المستندات والرسوم والتصاريح وخطوات الميناء إلى خطة واحدة واضحة المسؤولية.',
     href: '/workflow',
-    labelEn: 'Open workflow',
-    labelAr: 'فتح سير العمل',
-    featured: false,
+    labelEn: 'See the clearance desk',
+    labelAr: 'استكشف مكتب التخليص',
+    accent: 'acid',
+  },
+  {
+    number: '02',
+    icon: Boxes,
+    titleEn: 'Keep cargo moving',
+    titleAr: 'أبقِ الشحنة متحركة',
+    bodyEn: 'Container visibility, free-time awareness, and practical next actions from port release to final handoff.',
+    bodyAr: 'رؤية للحاويات والمدة المجانية والخطوة العملية التالية من الإفراج في الميناء حتى التسليم النهائي.',
+    href: '/portal',
+    labelEn: 'Open shipment tracking',
+    labelAr: 'افتح تتبع الشحنات',
+    accent: 'blue',
+  },
+  {
+    number: '03',
+    icon: FileText,
+    titleEn: 'Make the next move obvious',
+    titleAr: 'اجعل الخطوة التالية واضحة',
+    bodyEn: 'Jordan-first guidance for HS classification, authorities, requirements, and the decisions that unblock work.',
+    bodyAr: 'إرشاد أردني لتصنيف HS والجهات والمتطلبات والقرارات التي تزيل العوائق من طريق العمل.',
+    href: '/hs-search',
+    labelEn: 'Explore the toolkit',
+    labelAr: 'استكشف الأدوات',
+    accent: 'orange',
   },
 ];
 
-const PROMISES = [
-  {
-    icon: LockKeyhole,
-    titleEn: 'Private by design',
-    titleAr: 'خصوصية من الأساس',
-    bodyEn: 'Company workflows, records, and access are being rebuilt around protected private operations.',
-    bodyAr: 'تُعاد بناء إجراءات الشركة وسجلاتها ووصولها حول عمليات خاصة ومحمية.',
-  },
-  {
-    icon: FileCheck2,
-    titleEn: 'Clear steps, accountable work',
-    titleAr: 'خطوات واضحة وعمل مسؤول',
-    bodyEn: 'Bring documents, classification, approvals, and handoffs together around each shipment file.',
-    bodyAr: 'اجمع المستندات والتصنيف والاعتمادات والتسليمات حول كل ملف شحنة.',
-  },
-  {
-    icon: Search,
-    titleEn: 'Jordan clearance expertise',
-    titleAr: 'خبرة التخليص الأردني',
-    bodyEn: 'Practical guidance for customs, permits, ports, tax, HS classification, and ASYCUDA handoff.',
-    bodyAr: 'إرشاد عملي للجمارك والتصاريح والموانئ والضريبة وتصنيف HS وتسليم الأسيكودا.',
-  },
+const STEPS = [
+  { icon: Waypoints, titleEn: 'Brief', titleAr: 'التعريف', bodyEn: 'We get the shipment story, not just a reference number.', bodyAr: 'نفهم قصة الشحنة، وليس رقمها فقط.' },
+  { icon: Network, titleEn: 'Route', titleAr: 'تحديد المسار', bodyEn: 'We map the documents, authorities, timing, and handoffs.', bodyAr: 'نحدد المستندات والجهات والتوقيت ونقاط التسليم.' },
+  { icon: Check, titleEn: 'Release', titleAr: 'الإفراج', bodyEn: 'You see what moved, what is next, and who owns it.', bodyAr: 'ترى ما تم وما هو التالي ومن يملك المسؤولية.' },
 ];
+
+function CorridorCard({ locale }: { locale: 'en' | 'ar' }) {
+  return (
+    <div className="corridor-card" aria-label={t(locale, 'Raya corridor status', 'حالة مسار راية')}>
+      <div className="corridor-card__top">
+        <div>
+          <span className="micro-label">{t(locale, 'RAYA / 01', 'راية / ٠١')}</span>
+          <h2>{t(locale, 'The clearance corridor', 'مسار التخليص')}</h2>
+        </div>
+        <span className="live-chip"><span className="live-dot" />{t(locale, 'Live desk', 'مكتب مباشر')}</span>
+      </div>
+
+      <div className="corridor-map" aria-hidden="true">
+        <span className="map-grid map-grid--one" />
+        <span className="map-grid map-grid--two" />
+        <span className="route-line route-line--one" />
+        <span className="route-line route-line--two" />
+        <span className="route-node route-node--aqaba"><MapPin size={14} /><b>01</b></span>
+        <span className="route-node route-node--amman"><MapPin size={14} /><b>02</b></span>
+        <span className="route-node route-node--world"><Globe2 size={14} /><b>03</b></span>
+        <span className="map-label map-label--aqaba">AQABA</span>
+        <span className="map-label map-label--amman">AMMAN</span>
+        <span className="map-label map-label--world">WORLD</span>
+        <span className="route-pulse" />
+      </div>
+
+      <div className="corridor-status">
+        <div>
+          <span className="status-kicker">{t(locale, 'CURRENT POSITION', 'الموقع الحالي')}</span>
+          <strong>{t(locale, 'Documents under review', 'المستندات قيد المراجعة')}</strong>
+        </div>
+        <Clock3 size={18} />
+      </div>
+
+      <div className="corridor-footer">
+        <span>{t(locale, 'One accountable desk', 'مكتب واحد واضح المسؤولية')}</span>
+        <span>{t(locale, 'Human-approved', 'باعتماد بشري')}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function HomePage() {
   const { locale } = useLocale();
 
   return (
-    <div>
-      <section className="relative overflow-hidden border-b border-subtle">
-        <div className="absolute inset-0 bg-gradient-to-br from-navy-900 via-navy-950 to-navy-900" />
-        <div
-          className="absolute inset-0 opacity-60"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 14% 18%, rgba(59,130,246,0.18), transparent 28%), radial-gradient(circle at 86% 12%, rgba(16,185,129,0.12), transparent 24%), linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-            backgroundSize: 'auto, auto, 38px 38px, 38px 38px',
-          }}
-        />
-        <div className="relative mx-auto max-w-6xl px-4 py-16 lg:px-8 lg:py-24">
-          <div className="grid items-center gap-10 lg:grid-cols-[1.25fr_0.75fr]">
-            <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-sky-200 mb-6 prose-ar">
-              <Sparkles size={14} className="text-accent" />
-              {t(locale, 'Jordan Raya · Clearance & transport', 'راية الأردن · التخليص ونقل البضائع')}
-            </div>
-            <h1 className="max-w-3xl text-4xl font-bold leading-tight text-white sm:text-5xl lg:text-6xl" style={{ fontFamily: 'var(--font-heading)' }}>
-              {t(locale, 'Track. Clear. Move forward.', 'تتبّع. خلّص. تحرّك إلى الأمام.')}
-            </h1>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg prose-ar">
-              {t(
-                locale,
-                'Track a shipment, prepare a clearance, or manage company operations from one private Jordan logistics workspace — with every action owned by a person, not automated away.',
-                'تتبّع شحنة أو حضّر للتخليص أو أدر عمليات الشركة من مساحة عمل لوجستية أردنية خاصة واحدة — مع بقاء كل إجراء تحت مسؤولية شخص لا أتمتة غير مراقبة.',
-              )}
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link to="/portal" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-accent-hover">
-                <Container size={17} />
-                {t(locale, 'Track a shipment', 'تتبّع شحنة')}
-              </Link>
-              <Link to="/staff" className="inline-flex items-center gap-2 rounded-lg border border-strong bg-navy-900/60 px-5 py-3 text-sm font-semibold text-slate-200 transition-colors hover:border-accent/60 hover:text-white">
-                <ShieldCheck size={17} />
-                {t(locale, 'Staff sign in', 'دخول الموظفين')}
-              </Link>
-            </div>
-            <div className="mt-9 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-400 prose-ar">
-              {[t(locale, 'Bilingual EN / AR', 'ثنائية اللغة عربي / إنجليزي'), t(locale, 'Human-approved workflows', 'إجراءات باعتماد بشري'), t(locale, 'Private operations foundation', 'أساس للعمليات الخاصة')].map((line) => (
-                <span key={line} className="inline-flex items-center gap-1.5">
-                  <CheckCircle2 size={14} className="text-success" />
-                  {line}
-                </span>
-              ))}
-            </div>
-            </div>
-            <aside className="rounded-2xl border border-white/10 bg-navy-900/75 p-5 shadow-2xl shadow-black/20 backdrop-blur" aria-label={t(locale, 'Clearance journey', 'رحلة التخليص')}>
-              <div className="flex items-center justify-between border-b border-subtle pb-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">{t(locale, 'Your next move', 'خطوتك التالية')}</p>
-                  <h2 className="mt-1 text-lg font-semibold text-white">{t(locale, 'A clear shipment journey', 'رحلة شحنة واضحة')}</h2>
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent"><Container size={20} /></div>
+    <div className="public-home">
+      <section className="public-hero">
+        <div className="hero-aurora hero-aurora--left" />
+        <div className="hero-aurora hero-aurora--right" />
+        <div className="hero-rule hero-rule--top" />
+        <div className="hero-rule hero-rule--vertical" />
+        <div className="mx-auto max-w-7xl px-4 lg:px-8">
+          <div className="public-hero__grid">
+            <div className="public-hero__copy">
+              <div className="hero-kicker"><Sparkles size={14} />{t(locale, 'Jordan / customs / freight', 'الأردن / الجمارك / الشحن')}</div>
+              <h1>{t(locale, 'The clearer way through customs.', 'طريق أوضح عبر الجمارك.')}</h1>
+              <p className="public-hero__lead">{t(locale, 'Raya is the Jordan-native clearance desk for people who need cargo to move—and need to know exactly what happens next.', 'راية هي مكتب التخليص الأردني لمن يحتاج أن تتحرك شحنته وأن يعرف بالضبط ما هي الخطوة التالية.')}</p>
+              <div className="public-hero__actions">
+                <Link to="/portal" className="public-button public-button--acid"><span>{t(locale, 'Track a shipment', 'تتبّع شحنة')}</span><ArrowUpRight size={17} /></Link>
+                <Link to="/#services" className="public-button public-button--quiet"><span>{t(locale, 'See what we do', 'اكتشف خدماتنا')}</span><ArrowRight size={17} /></Link>
               </div>
-              <ol className="mt-5 space-y-4">
-                {[
-                  { step: '01', titleEn: 'Track', titleAr: 'تتبّع', bodyEn: 'See the current shipment status in the client portal.', bodyAr: 'اطلع على حالة الشحنة الحالية في بوابة العملاء.' },
-                  { step: '02', titleEn: 'Clear', titleAr: 'خلّص', bodyEn: 'Prepare documents, classification, and approvals with the team.', bodyAr: 'حضّر المستندات والتصنيف والاعتمادات مع الفريق.' },
-                  { step: '03', titleEn: 'Move', titleAr: 'تحرّك', bodyEn: 'Confirm release, handoff, and the next accountable action.', bodyAr: 'أكد الإفراج والتسليم والإجراء التالي المسؤول عنه.' },
-                ].map((item) => (
-                  <li key={item.step} className="flex gap-3">
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/35 bg-accent/10 text-[10px] font-bold text-sky-200">{item.step}</span>
-                    <div>
-                      <p className="text-sm font-semibold text-white prose-ar">{t(locale, item.titleEn, item.titleAr)}</p>
-                      <p className="mt-0.5 text-xs leading-relaxed text-muted prose-ar">{t(locale, item.bodyEn, item.bodyAr)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-              <Link to="/portal" className="mt-6 flex items-center justify-between rounded-lg border border-accent/35 bg-accent/10 px-4 py-3 text-sm font-semibold text-sky-100 transition-colors hover:bg-accent/20">
-                {t(locale, 'Open secure client tracking', 'فتح تتبع العملاء الآمن')}
-                <ArrowRight size={16} />
-              </Link>
-            </aside>
+              <div className="hero-note"><span className="hero-note__line" />{t(locale, 'No black box. No orphaned paperwork. Just a next move.', 'لا صندوق أسود. لا أوراق بلا صاحب. فقط خطوة تالية واضحة.')}</div>
+            </div>
+            <CorridorCard locale={locale} />
+          </div>
+          <div className="hero-bottomline">
+            <span>{t(locale, 'Built in Jordan for the way goods actually move.', 'صُمم في الأردن للطريقة التي تتحرك بها البضائع فعلاً.')}</span>
+            <span className="hero-bottomline__marker">↓ 31°57′N / 35°56′E</span>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 py-14 lg:px-8 lg:py-18">
-        <div className="mb-7 max-w-2xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{t(locale, 'Start here', 'ابدأ من هنا')}</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white" style={{ fontFamily: 'var(--font-heading)' }}>
-            {t(locale, 'Choose what you need now.', 'اختر ما تحتاجه الآن.')}
-          </h2>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {PATHS.map((path) => (
-            <Link
-              key={path.href}
-              to={path.href}
-              className={`group rounded-2xl border p-6 transition-all ${
-                path.featured
-                  ? 'border-accent/45 bg-gradient-to-br from-accent/15 to-navy-800 hover:border-accent'
-                  : 'border-subtle bg-elevated hover:border-strong hover:bg-navy-700/80'
-              }`}
-            >
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-navy-900/70 text-accent ring-1 ring-white/10">
-                <path.icon size={21} />
-              </div>
-              <h3 className="mt-5 text-lg font-semibold text-white prose-ar">{t(locale, path.titleEn, path.titleAr)}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted prose-ar">{t(locale, path.bodyEn, path.bodyAr)}</p>
-              <span className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-accent">
-                {t(locale, path.labelEn, path.labelAr)}
-                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1 rtl:group-hover:-translate-x-1" />
-              </span>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section className="border-y border-subtle bg-navy-900/60">
-        <div className="mx-auto grid max-w-6xl gap-8 px-4 py-14 lg:grid-cols-[1fr_2fr] lg:px-8">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-success">{t(locale, 'Built for the work', 'مصمم للعمل')}</p>
-            <h2 className="mt-3 text-2xl font-semibold text-white" style={{ fontFamily: 'var(--font-heading)' }}>
-              {t(locale, 'Practical tools. Clear responsibility.', 'أدوات عملية. مسؤولية واضحة.')}
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-muted prose-ar">
-              {t(locale, 'The platform supports the work; it does not submit declarations or move money automatically.', 'تدعم المنصة العمل ولا تقدّم بيانات أو تنفّذ مدفوعات تلقائياً.')}
-            </p>
+      <section id="services" className="public-section public-section--paper">
+        <div className="mx-auto max-w-7xl px-4 lg:px-8">
+          <div className="section-heading section-heading--split">
+            <div>
+              <span className="section-index">01 / {t(locale, 'The desk', 'المكتب')}</span>
+              <h2>{t(locale, 'Three ways to get unstuck.', 'ثلاث طرق للخروج من التعطّل.')}</h2>
+            </div>
+            <p>{t(locale, 'A small, focused operating layer for the moments when a shipment, a document, or a decision is holding everything up.', 'طبقة تشغيل صغيرة ومركّزة للحظات التي تتعطل فيها الشحنة أو المستند أو القرار.')}</p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            {PROMISES.map((promise) => (
-              <div key={promise.titleEn} className="rounded-xl border border-subtle bg-elevated/70 p-5">
-                <promise.icon size={19} className="text-accent" />
-                <h3 className="mt-4 text-sm font-semibold text-white prose-ar">{t(locale, promise.titleEn, promise.titleAr)}</h3>
-                <p className="mt-2 text-xs leading-relaxed text-muted prose-ar">{t(locale, promise.bodyEn, promise.bodyAr)}</p>
-              </div>
+          <div className="service-grid">
+            {SERVICES.map((service) => (
+              <Link key={service.number} to={service.href} className={`service-tile service-tile--${service.accent}`}>
+                <div className="service-tile__top"><span>{service.number}</span><service.icon size={22} /></div>
+                <h3>{t(locale, service.titleEn, service.titleAr)}</h3>
+                <p>{t(locale, service.bodyEn, service.bodyAr)}</p>
+                <span className="service-tile__link">{t(locale, service.labelEn, service.labelAr)}<ArrowUpRight size={15} /></span>
+              </Link>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 py-14 lg:px-8">
-        <div className="rounded-2xl border border-subtle bg-elevated p-7 sm:p-9">
-          <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
-            <div className="max-w-2xl">
-              <div className="flex items-center gap-2 text-accent"><Building2 size={18} /><span className="text-xs font-semibold uppercase tracking-[0.16em]">{t(locale, 'Jordan Raya', 'راية الأردن')}</span></div>
-              <h2 className="mt-3 text-2xl font-semibold text-white" style={{ fontFamily: 'var(--font-heading)' }}>
-                {t(locale, 'Need to prepare for a clearance?', 'هل تحتاج إلى التحضير للتخليص؟')}
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted prose-ar">
-                {t(locale, 'Review the workflow first, then use the right tools for classification, requirements, authorities, and timing.', 'راجع سير العمل أولاً، ثم استخدم الأدوات المناسبة للتصنيف والمتطلبات والجهات والتوقيت.')}
-              </p>
+      <section id="method" className="public-section public-section--ink">
+        <div className="mx-auto max-w-7xl px-4 lg:px-8">
+          <div className="method-layout">
+            <div className="method-intro">
+              <span className="section-index section-index--light">02 / {t(locale, 'The method', 'المنهج')}</span>
+              <h2>{t(locale, 'Less chasing. More certainty.', 'مطاردة أقل. يقين أكثر.')}</h2>
+              <p>{t(locale, 'The best clearance experience is not louder software. It is a sharper handoff between people, documents, and time.', 'أفضل تجربة تخليص ليست برنامجاً أعلى صوتاً. إنها تسليم أكثر دقة بين الأشخاص والمستندات والوقت.')}</p>
+              <div className="method-quote">“{t(locale, 'Every file deserves a next move.', 'كل ملف يستحق خطوة تالية.')}”</div>
             </div>
-            <Link to="/workflow" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-strong px-5 py-3 text-sm font-semibold text-slate-200 transition-colors hover:border-accent hover:text-white">
-              {t(locale, 'Explore clearance workflow', 'استكشف سير التخليص')}
-              <ArrowRight size={16} />
-            </Link>
+            <div className="step-list">
+              {STEPS.map((step, index) => (
+                <div key={step.titleEn} className="step-row">
+                  <div className="step-row__number">0{index + 1}</div>
+                  <div className="step-row__icon"><step.icon size={19} /></div>
+                  <div className="step-row__copy"><h3>{t(locale, step.titleEn, step.titleAr)}</h3><p>{t(locale, step.bodyEn, step.bodyAr)}</p></div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
+
+      <section className="public-section public-section--signal">
+        <div className="mx-auto max-w-7xl px-4 lg:px-8">
+          <div className="signal-panel">
+            <div className="signal-panel__side"><Route size={22} /><span>RAYA / JORDAN</span></div>
+            <div className="signal-panel__main">
+              <span className="section-index">03 / {t(locale, 'Make it move', 'حرّكها')}</span>
+              <h2>{t(locale, 'Bring us the complicated shipment.', 'أحضر لنا الشحنة المعقّدة.')}</h2>
+              <p>{t(locale, 'Start with the facts you have. We will help make the next action clear.', 'ابدأ بالحقائق التي لديك. سنساعدك على جعل الخطوة التالية واضحة.')}</p>
+              <div className="signal-panel__actions">
+                <Link to="/portal" className="public-button public-button--acid">{t(locale, 'Open client portal', 'افتح بوابة العملاء')}<ArrowUpRight size={17} /></Link>
+                <Link to="/workflow" className="text-link">{t(locale, 'Read the clearance workflow', 'اقرأ سير عمل التخليص')}<ArrowRight size={16} /></Link>
+              </div>
+            </div>
+            <div className="signal-panel__stamp"><ShieldCheck size={24} /><span>{t(locale, 'Human-led\noperations', 'عمليات\nبقيادة بشرية')}</span></div>
+          </div>
+        </div>
+      </section>
+
+      <div className="public-marquee" aria-hidden="true"><span>TRACK / CLEAR / MOVE / تتبّع / خلّص / تحرّك / </span><span>TRACK / CLEAR / MOVE / تتبّع / خلّص / تحرّك / </span></div>
     </div>
   );
 }

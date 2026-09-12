@@ -34,8 +34,8 @@ function isTariffDataset(value: unknown): value is TariffDataset {
 
 export function loadJordanTariff(): Promise<TariffDataset> {
   if (!tariffPromise) {
-    const url = `${import.meta.env.BASE_URL}data/jordan-tariff.json`;
-    tariffPromise = fetch(url, { cache: 'force-cache' })
+    const url = `${import.meta.env.BASE_URL}data/jordan-tariff.json?v=20260912`;
+    tariffPromise = fetch(url, { cache: 'no-cache' })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Tariff data request failed (${response.status})`);
         const payload: unknown = await response.json();
